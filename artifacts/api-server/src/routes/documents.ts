@@ -115,12 +115,14 @@ router.put(
       }
 
       let result;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const idFilter: any = { _id: objectId };
       if (replace) {
         const { _id, ...docWithoutId } = update as { _id?: unknown; [key: string]: unknown };
-        result = await col.replaceOne({ _id: objectId }, docWithoutId);
+        result = await col.replaceOne(idFilter, docWithoutId);
       } else {
         const updateDoc = update.$set || update.$unset || update.$push ? update : { $set: update };
-        result = await col.updateOne({ _id: objectId }, updateDoc);
+        result = await col.updateOne(idFilter, updateDoc);
       }
 
       res.json({
@@ -153,7 +155,8 @@ router.delete(
       } catch {
         objectId = documentId;
       }
-      await col.deleteOne({ _id: objectId });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await col.deleteOne({ _id: objectId } as any);
       res.json({ success: true, message: "Document deleted" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete document";
