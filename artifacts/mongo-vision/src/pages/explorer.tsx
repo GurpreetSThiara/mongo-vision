@@ -25,6 +25,7 @@ import {
   getListDatabasesQueryKey,
   getListCollectionsQueryKey,
   getListDocumentsQueryKey,
+  getAnalyzeSchemaQueryKey,
   getListIndexesQueryKey,
   getListSavedQueriesQueryKey,
 } from "@workspace/api-client-react";
@@ -181,7 +182,7 @@ export default function Explorer() {
   );
 
   const { data: schemaData, isLoading: schemaLoading } = useAnalyzeSchema(connectionId, database, collection, {}, {
-    query: { enabled: !!connectionId && !!database && !!collection && activeTab === "schema" }
+    query: { enabled: !!connectionId && !!database && !!collection && activeTab === "schema", queryKey: getAnalyzeSchemaQueryKey(connectionId, database, collection, {}) }
   });
 
   const { data: indexData, isLoading: indexLoading } = useListIndexes(connectionId, database, collection, {

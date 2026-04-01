@@ -146,7 +146,8 @@ router.post(
           try {
             const { _id, ...rest } = doc;
             if (_id) {
-              const r = await col.replaceOne({ _id: _id as string }, rest, { upsert: true });
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const r = await col.replaceOne({ _id: _id } as any, rest, { upsert: true });
               if (r.upsertedCount) insertedCount++;
               else updatedCount++;
             } else {
