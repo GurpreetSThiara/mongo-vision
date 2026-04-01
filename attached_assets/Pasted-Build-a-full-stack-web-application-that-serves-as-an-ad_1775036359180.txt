@@ -1,0 +1,71 @@
+Build a full-stack web application that serves as an advanced MongoDB database visualization and management tool, better than MongoDB Compass in usability and features.
+
+Core Requirements:
+1. Tech Stack
+Frontend: React (with Tailwind CSS for UI)
+Backend: Node.js with Express
+Database: MongoDB (native driver or Mongoose)
+Use WebSockets or polling for real-time updates
+Ensure clean modular architecture
+2. Authentication & Connection
+Allow users to securely connect to any MongoDB instance via URI
+Store connection sessions temporarily (no plaintext passwords)
+Add optional authentication (login/signup) for saved connections
+3. Database Explorer UI
+Sidebar to display:
+Databases
+Collections
+Main panel:
+Show documents in a table/grid format
+Support pagination, sorting, and filtering
+Expandable JSON viewer for each document (tree structure like Compass, but smoother)
+4. Visual Schema Builder (Key Feature)
+Automatically analyze collections and infer schema:
+Field types
+Nested structures
+Arrays
+Display schema visually as:
+Tree diagram
+Graph view (nodes and relationships)
+Highlight inconsistencies in schema
+5. Advanced Query Builder
+GUI-based query builder (no need to write JSON manually)
+Support:
+find, aggregate, sort, limit, project
+Show live preview of results while building query
+Also allow raw query editing for advanced users
+6. Data Editing (Better than Compass)
+Inline editing of documents directly in table view
+Bulk edit, insert, delete operations
+Undo/redo functionality
+Validation before commit
+7. Performance Insights
+Show query execution time
+Suggest indexes based on queries
+Display existing indexes and allow managing them
+8. Data Visualization
+Convert query results into charts:
+Bar, Line, Pie
+Allow user to map fields to axes dynamically
+Use a charting library like Recharts or Chart.js
+9. Import / Export
+Import JSON, CSV into collections
+Export query results as JSON/CSV
+10. UX Improvements Over MongoDB Compass
+Faster UI with virtualized tables
+Better dark mode
+Keyboard shortcuts
+Saved queries and pinned collections
+Multi-tab workspace (like browser tabs)
+11. Extra Features (Stretch Goals)
+Role-based access control
+Collaboration (share queries/views)
+AI assistant to generate queries from natural language
+Deliverables:
+Fully working frontend + backend
+Clean, well-commented code
+Instructions to run locally
+Example MongoDB dataset for testing
+Notes:
+
+Focus on performance, clean UI/UX, and making database operations faster and more intuitive than MongoDB Compass.
