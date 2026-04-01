@@ -1,22 +1,38 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: MongoVision API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: connections
+    description: MongoDB connection management
+  - name: databases
+    description: Database operations
+  - name: collections
+    description: Collection operations
+  - name: documents
+    description: Document operations
+  - name: query
+    description: Query builder and execution
+  - name: schema
+    description: Schema analysis
+  - name: indexes
+    description: Index management
+  - name: performance
+    description: Performance insights
+  - name: import-export
+    description: Import and export operations
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +40,851 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /connections:
+    get:
+      operationId: listConnections
+      tags: [connections]
+      summary: List saved connections
+      responses:
+        "200":
+          description: List of connections
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Connection"
+                required: [connections]
+    post:
+      operationId: createConnection
+      tags: [connections]
+      summary: Create and test a new MongoDB connection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectionBody"
+      responses:
+        "200":
+          description: Connection created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        "400":
+          description: Connection failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /connections/{connectionId}:
+    get:
+      operationId: getConnection
+      tags: [connections]
+      summary: Get a specific connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connection details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+    delete:
+      operationId: deleteConnection
+      tags: [connections]
+      summary: Delete a saved connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connection deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /connections/{connectionId}/test:
+    post:
+      operationId: testConnection
+      tags: [connections]
+      summary: Test an existing connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResult"
+
+  /connections/{connectionId}/databases:
+    get:
+      operationId: listDatabases
+      tags: [databases]
+      summary: List all databases for a connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of databases
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  databases:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Database"
+                required: [databases]
+
+  /connections/{connectionId}/databases/{dbName}/stats:
+    get:
+      operationId: getDatabaseStats
+      tags: [databases]
+      summary: Get database statistics
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Database statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatabaseStats"
+
+  /connections/{connectionId}/databases/{dbName}/collections:
+    get:
+      operationId: listCollections
+      tags: [collections]
+      summary: List all collections in a database
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of collections
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  collections:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Collection"
+                required: [collections]
+    post:
+      operationId: createCollection
+      tags: [collections]
+      summary: Create a new collection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCollectionBody"
+      responses:
+        "200":
+          description: Collection created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}:
+    delete:
+      operationId: dropCollection
+      tags: [collections]
+      summary: Drop a collection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Collection dropped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/documents:
+    get:
+      operationId: listDocuments
+      tags: [documents]
+      summary: List documents in a collection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: number
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 20
+        - name: filter
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+        - name: projection
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Documents list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentsPage"
+    post:
+      operationId: insertDocument
+      tags: [documents]
+      summary: Insert a document
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertDocumentBody"
+      responses:
+        "200":
+          description: Document inserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InsertResult"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/documents/{documentId}:
+    put:
+      operationId: updateDocument
+      tags: [documents]
+      summary: Update a document
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDocumentBody"
+      responses:
+        "200":
+          description: Document updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateResult"
+    delete:
+      operationId: deleteDocument
+      tags: [documents]
+      summary: Delete a document
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Document deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/bulk:
+    post:
+      operationId: bulkOperation
+      tags: [documents]
+      summary: Perform bulk operations on documents
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkOperationBody"
+      responses:
+        "200":
+          description: Bulk operation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkOperationResult"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/query:
+    post:
+      operationId: executeQuery
+      tags: [query]
+      summary: Execute a query against a collection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryBody"
+      responses:
+        "200":
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResult"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/aggregate:
+    post:
+      operationId: executeAggregate
+      tags: [query]
+      summary: Execute an aggregation pipeline
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AggregateBody"
+      responses:
+        "200":
+          description: Aggregation results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResult"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/schema:
+    get:
+      operationId: analyzeSchema
+      tags: [schema]
+      summary: Analyze and infer schema for a collection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sampleSize
+          in: query
+          schema:
+            type: number
+            default: 100
+      responses:
+        "200":
+          description: Schema analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaAnalysis"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/indexes:
+    get:
+      operationId: listIndexes
+      tags: [indexes]
+      summary: List all indexes for a collection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of indexes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  indexes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IndexInfo"
+                required: [indexes]
+    post:
+      operationId: createIndex
+      tags: [indexes]
+      summary: Create an index
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIndexBody"
+      responses:
+        "200":
+          description: Index created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/indexes/{indexName}:
+    delete:
+      operationId: dropIndex
+      tags: [indexes]
+      summary: Drop an index
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: indexName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Index dropped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/explain:
+    post:
+      operationId: explainQuery
+      tags: [performance]
+      summary: Explain a query execution plan
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryBody"
+      responses:
+        "200":
+          description: Query explain plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExplainResult"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/index-suggestions:
+    post:
+      operationId: suggestIndexes
+      tags: [performance]
+      summary: Suggest indexes based on a query
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryBody"
+      responses:
+        "200":
+          description: Index suggestions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexSuggestions"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/export:
+    post:
+      operationId: exportCollection
+      tags: [import-export]
+      summary: Export collection data
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportBody"
+      responses:
+        "200":
+          description: Exported data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResult"
+
+  /connections/{connectionId}/databases/{dbName}/collections/{collectionName}/import:
+    post:
+      operationId: importCollection
+      tags: [import-export]
+      summary: Import data into a collection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dbName
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: collectionName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportBody"
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportResult"
+
+  /connections/{connectionId}/stats:
+    get:
+      operationId: getServerStats
+      tags: [performance]
+      summary: Get server statistics for a connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Server statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerStats"
+
+  /saved-queries:
+    get:
+      operationId: listSavedQueries
+      tags: [query]
+      summary: List all saved queries
+      responses:
+        "200":
+          description: Saved queries list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SavedQuery"
+                required: [queries]
+    post:
+      operationId: saveQuery
+      tags: [query]
+      summary: Save a query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveQueryBody"
+      responses:
+        "200":
+          description: Query saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedQuery"
+
+  /saved-queries/{queryId}:
+    delete:
+      operationId: deleteSavedQuery
+      tags: [query]
+      summary: Delete a saved query
+      parameters:
+        - name: queryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Query deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +892,543 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required: [error, message]
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required: [success]
+
+    Connection:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        host:
+          type: string
+        port:
+          type: number
+        status:
+          type: string
+          enum: [connected, disconnected, error]
+        createdAt:
+          type: string
+        lastUsed:
+          type: string
+        mongoVersion:
+          type: string
+      required: [id, name, host, port, status, createdAt]
+
+    CreateConnectionBody:
+      type: object
+      properties:
+        name:
+          type: string
+        uri:
+          type: string
+      required: [name, uri]
+
+    ConnectionTestResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        latencyMs:
+          type: number
+        mongoVersion:
+          type: string
+        message:
+          type: string
+      required: [success]
+
+    Database:
+      type: object
+      properties:
+        name:
+          type: string
+        sizeOnDisk:
+          type: number
+        empty:
+          type: boolean
+        collectionCount:
+          type: number
+      required: [name, sizeOnDisk, empty]
+
+    DatabaseStats:
+      type: object
+      properties:
+        db:
+          type: string
+        collections:
+          type: number
+        views:
+          type: number
+        objects:
+          type: number
+        avgObjSize:
+          type: number
+        dataSize:
+          type: number
+        storageSize:
+          type: number
+        indexes:
+          type: number
+        indexSize:
+          type: number
+        totalSize:
+          type: number
+      required: [db, collections, objects, dataSize, storageSize, indexes, indexSize, totalSize]
+
+    Collection:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        documentCount:
+          type: number
+        storageSize:
+          type: number
+        totalIndexSize:
+          type: number
+        avgDocumentSize:
+          type: number
+      required: [name, type]
+
+    CreateCollectionBody:
+      type: object
+      properties:
+        name:
+          type: string
+      required: [name]
+
+    DocumentsPage:
+      type: object
+      properties:
+        documents:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        total:
+          type: number
+        page:
+          type: number
+        limit:
+          type: number
+        totalPages:
+          type: number
+        executionTimeMs:
+          type: number
+      required: [documents, total, page, limit, totalPages]
+
+    InsertDocumentBody:
+      type: object
+      properties:
+        document:
+          type: object
+          additionalProperties: true
+      required: [document]
+
+    InsertResult:
+      type: object
+      properties:
+        insertedId:
+          type: string
+        acknowledged:
+          type: boolean
+      required: [insertedId, acknowledged]
+
+    UpdateDocumentBody:
+      type: object
+      properties:
+        update:
+          type: object
+          additionalProperties: true
+        replace:
+          type: boolean
+      required: [update]
+
+    UpdateResult:
+      type: object
+      properties:
+        matchedCount:
+          type: number
+        modifiedCount:
+          type: number
+        acknowledged:
+          type: boolean
+      required: [matchedCount, modifiedCount, acknowledged]
+
+    BulkOperationBody:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [deleteMany, updateMany, insertMany]
+        filter:
+          type: object
+          additionalProperties: true
+        update:
+          type: object
+          additionalProperties: true
+        documents:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required: [operation]
+
+    BulkOperationResult:
+      type: object
+      properties:
+        matchedCount:
+          type: number
+        modifiedCount:
+          type: number
+        deletedCount:
+          type: number
+        insertedCount:
+          type: number
+        acknowledged:
+          type: boolean
+      required: [acknowledged]
+
+    QueryBody:
+      type: object
+      properties:
+        filter:
+          type: object
+          additionalProperties: true
+        sort:
+          type: object
+          additionalProperties: true
+        projection:
+          type: object
+          additionalProperties: true
+        limit:
+          type: number
+        skip:
+          type: number
+      required: []
+
+    AggregateBody:
+      type: object
+      properties:
+        pipeline:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required: [pipeline]
+
+    QueryResult:
+      type: object
+      properties:
+        documents:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        count:
+          type: number
+        executionTimeMs:
+          type: number
+      required: [documents, count, executionTimeMs]
+
+    SchemaField:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+        types:
+          type: array
+          items:
+            type: string
+        prevalence:
+          type: number
+        nullable:
+          type: boolean
+        isArray:
+          type: boolean
+        isNested:
+          type: boolean
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemaField"
+        sampleValues:
+          type: array
+          items: {}
+      required: [name, path, type, prevalence]
+
+    SchemaAnalysis:
+      type: object
+      properties:
+        collectionName:
+          type: string
+        documentCount:
+          type: number
+        sampleSize:
+          type: number
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemaField"
+        inconsistencies:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              issue:
+                type: string
+              affectedDocuments:
+                type: number
+            required: [field, issue]
+      required: [collectionName, documentCount, sampleSize, fields, inconsistencies]
+
+    IndexInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        key:
+          type: object
+          additionalProperties: true
+        unique:
+          type: boolean
+        sparse:
+          type: boolean
+        background:
+          type: boolean
+        size:
+          type: number
+      required: [name, key]
+
+    CreateIndexBody:
+      type: object
+      properties:
+        keys:
+          type: object
+          additionalProperties: true
+        options:
+          type: object
+          properties:
+            name:
+              type: string
+            unique:
+              type: boolean
+            sparse:
+              type: boolean
+            background:
+              type: boolean
+          additionalProperties: true
+      required: [keys]
+
+    ExplainResult:
+      type: object
+      properties:
+        queryPlanner:
+          type: object
+          additionalProperties: true
+        executionStats:
+          type: object
+          additionalProperties: true
+        executionTimeMs:
+          type: number
+        indexesUsed:
+          type: array
+          items:
+            type: string
+        collectionScans:
+          type: number
+        totalDocsExamined:
+          type: number
+        totalKeysExamined:
+          type: number
+      required: [queryPlanner, executionTimeMs]
+
+    IndexSuggestions:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          items:
+            type: object
+            properties:
+              fields:
+                type: array
+                items:
+                  type: string
+              reason:
+                type: string
+              estimatedImpact:
+                type: string
+              createCommand:
+                type: string
+            required: [fields, reason, estimatedImpact, createCommand]
+      required: [suggestions]
+
+    ExportBody:
+      type: object
+      properties:
+        format:
+          type: string
+          enum: [json, csv]
+        filter:
+          type: object
+          additionalProperties: true
+        projection:
+          type: object
+          additionalProperties: true
+        limit:
+          type: number
+      required: [format]
+
+    ExportResult:
+      type: object
+      properties:
+        data:
+          type: string
+        format:
+          type: string
+        documentCount:
+          type: number
+        filename:
+          type: string
+      required: [data, format, documentCount, filename]
+
+    ImportBody:
+      type: object
+      properties:
+        format:
+          type: string
+          enum: [json, csv]
+        data:
+          type: string
+        options:
+          type: object
+          properties:
+            upsert:
+              type: boolean
+            dropFirst:
+              type: boolean
+          additionalProperties: true
+      required: [format, data]
+
+    ImportResult:
+      type: object
+      properties:
+        insertedCount:
+          type: number
+        updatedCount:
+          type: number
+        errors:
+          type: array
+          items:
+            type: string
+        success:
+          type: boolean
+      required: [insertedCount, success]
+
+    ServerStats:
+      type: object
+      properties:
+        host:
+          type: string
+        version:
+          type: string
+        uptime:
+          type: number
+        connections:
+          type: object
+          properties:
+            current:
+              type: number
+            available:
+              type: number
+            totalCreated:
+              type: number
+          additionalProperties: true
+        memory:
+          type: object
+          properties:
+            resident:
+              type: number
+            virtual:
+              type: number
+          additionalProperties: true
+        opcounters:
+          type: object
+          additionalProperties: true
+        databases:
+          type: array
+          items:
+            type: string
+      required: [host, version, uptime]
+
+    SavedQuery:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        connectionId:
+          type: string
+        database:
+          type: string
+        collection:
+          type: string
+        query:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+        pinned:
+          type: boolean
+      required: [id, name, connectionId, database, collection, query, createdAt]
+
+    SaveQueryBody:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        connectionId:
+          type: string
+        database:
+          type: string
+        collection:
+          type: string
+        query:
+          type: object
+          additionalProperties: true
+        pinned:
+          type: boolean
+      required: [name, connectionId, database, collection, query]
