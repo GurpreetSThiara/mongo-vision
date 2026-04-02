@@ -4,12 +4,12 @@ import { getSession } from "../lib/mongodb.js";
 
 const router = Router();
 
-function parseJsonSafe(str: string | undefined): Record<string, unknown> | null {
-  if (!str) return null;
+function parseJson(str: string | undefined): Record<string, unknown> {
+  if (!str || str.trim() === "") return {};
   try {
     return JSON.parse(str);
-  } catch {
-    return null;
+  } catch (err) {
+    throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -21,9 +21,18 @@ router.get(
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     const skip = (page - 1) * limit;
 
-    const filter = parseJsonSafe(req.query.filter as string) || {};
-    const sort = parseJsonSafe(req.query.sort as string) || {};
-    const projection = parseJsonSafe(req.query.projection as string) || {};
+    let filter, sort, projection;
+    try {
+      filter = parseJson(req.query.filter as string);
+      sort = parseJson(req.query.sort as string);
+      projection = parseJson(req.query.projection as string);
+    } catch (err) {
+      res.status(400).json({
+        error: "bad_request",
+        message: err instanceof Error ? err.message : "Invalid JSON in query parameters",
+      });
+      return;
+    }
 
     const session = getSession(connectionId);
     if (!session) {

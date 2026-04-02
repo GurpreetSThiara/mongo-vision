@@ -157,4 +157,67 @@ router.get(
   }
 );
 
+// Get current validator
+router.get(
+  "/connections/:connectionId/databases/:dbName/collections/:collectionName/validation",
+  async (req, res) => {
+    const { connectionId, dbName, collectionName } = req.params;
+    const session = getSession(connectionId);
+    if (!session) {
+      res.status(404).json({ error: "not_found", message: "Connection not found" });
+      return;
+    }
+
+    try {
+      const db = session.client.db(dbName);
+      const collections = await db.listCollections({ name: collectionName }).toArray();
+      const colInfo = collections[0] as any;
+
+      if (!colInfo) {
+        res.status(404).json({ error: "not_found", message: "Collection not found" });
+        return;
+      }
+
+      res.json({
+        validator: (colInfo.options as any)?.validator || {},
+        validationLevel: (colInfo.options as any)?.validationLevel || "strict",
+        validationAction: (colInfo.options as any)?.validationAction || "error",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to fetch validation";
+      res.status(500).json({ error: "server_error", message });
+    }
+  }
+);
+
+// Update validator
+router.post(
+  "/connections/:connectionId/databases/:dbName/collections/:collectionName/validation",
+  async (req, res) => {
+    const { connectionId, dbName, collectionName } = req.params;
+    const { validator, validationLevel, validationAction } = req.body as any;
+
+    const session = getSession(connectionId);
+    if (!session) {
+      res.status(404).json({ error: "not_found", message: "Connection not found" });
+      return;
+    }
+
+    try {
+      const db = session.client.db(dbName);
+      await db.command({
+        collMod: collectionName,
+        validator: validator || {},
+        validationLevel: validationLevel || "strict",
+        validationAction: validationAction || "error",
+      });
+
+      res.json({ success: true, message: "Collection validation updated" });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update validation";
+      res.status(500).json({ error: "server_error", message });
+    }
+  }
+);
+
 export default router;

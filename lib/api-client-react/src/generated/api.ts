@@ -752,6 +752,94 @@ export function useGetDatabaseStats<
 }
 
 /**
+ * @summary Drop a database
+ */
+export const getDropDatabaseUrl = (connectionId: string, dbName: string) => {
+  return `/api/connections/${connectionId}/databases/${dbName}`;
+};
+
+export const dropDatabase = async (
+  connectionId: string,
+  dbName: string,
+  options?: RequestInit,
+): Promise<SuccessResponse> => {
+  return customFetch<SuccessResponse>(
+    getDropDatabaseUrl(connectionId, dbName),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDropDatabaseMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dropDatabase>>,
+    TError,
+    { connectionId: string; dbName: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof dropDatabase>>,
+  TError,
+  { connectionId: string; dbName: string },
+  TContext
+> => {
+  const mutationKey = ["dropDatabase"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof dropDatabase>>,
+    { connectionId: string; dbName: string }
+  > = (props) => {
+    const { connectionId, dbName } = props ?? {};
+
+    return dropDatabase(connectionId, dbName, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DropDatabaseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof dropDatabase>>
+>;
+
+export type DropDatabaseMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Drop a database
+ */
+export const useDropDatabase = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dropDatabase>>,
+    TError,
+    { connectionId: string; dbName: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof dropDatabase>>,
+  TError,
+  { connectionId: string; dbName: string },
+  TContext
+> => {
+  return useMutation(getDropDatabaseMutationOptions(options));
+};
+
+/**
  * @summary List all collections in a database
  */
 export const getListCollectionsUrl = (connectionId: string, dbName: string) => {

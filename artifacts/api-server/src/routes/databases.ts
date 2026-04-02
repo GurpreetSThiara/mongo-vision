@@ -73,4 +73,21 @@ router.get("/connections/:connectionId/databases/:dbName/stats", async (req, res
   }
 });
 
+router.delete("/connections/:connectionId/databases/:dbName", async (req, res) => {
+  const { connectionId, dbName } = req.params;
+  const session = getSession(connectionId);
+  if (!session) {
+    res.status(404).json({ error: "not_found", message: "Connection not found" });
+    return;
+  }
+
+  try {
+    await session.client.db(dbName).dropDatabase();
+    res.json({ success: true, message: `Database '${dbName}' dropped` });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to drop database";
+    res.status(500).json({ error: "server_error", message });
+  }
+});
+
 export default router;
