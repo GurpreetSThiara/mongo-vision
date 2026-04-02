@@ -135,6 +135,19 @@ export const GetDatabaseStatsResponse = zod.object({
 });
 
 /**
+ * @summary Drop a database
+ */
+export const DropDatabaseParams = zod.object({
+  connectionId: zod.coerce.string(),
+  dbName: zod.coerce.string(),
+});
+
+export const DropDatabaseResponse = zod.object({
+  success: zod.boolean(),
+  message: zod.string().optional(),
+});
+
+/**
  * @summary List all collections in a database
  */
 export const ListCollectionsParams = zod.object({
