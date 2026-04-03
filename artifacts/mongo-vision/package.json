@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "json5": "^2.2.3",
     "monaco-editor": "^0.55.1"
   }
 }

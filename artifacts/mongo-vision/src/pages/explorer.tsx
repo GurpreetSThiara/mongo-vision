@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useParams, Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -45,15 +45,16 @@ import {
   Upload, Search, Settings, BookmarkCheck, FileJson, Play,
   Filter, SortAsc, Star, ChevronLeft, ChevronRightIcon, Loader2,
   AlertCircle, CheckCircle, XCircle, Eye, Clock, MousePointerClick,
-  Copy, Columns, LayoutGrid, Timer, Pin, Maximize2, Minimize2,
-  LayoutList, FileText, Diff, X, Shield,
+  Copy, Columns, LayoutGrid, Timer, Pin,
+  LayoutList, FileText, Diff, X, Shield, ChevronsDownUp, Grid3x3,
+  ArrowUpToLine, ListTree,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog";
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend
 } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,6 +63,20 @@ import { QueryTemplates } from "@/components/QueryTemplates";
 import { QueryHistory, addToHistory } from "@/components/QueryHistory";
 import { AggregationPipelineBuilder } from "@/components/AggregationPipelineBuilder";
 import { VisualQueryBuilder } from "@/components/VisualQueryBuilder";
+import { DocumentsSpreadsheetView } from "@/components/DocumentsSpreadsheetView";
+import { DocumentsJsonView } from "@/components/DocumentsJsonView";
+import { DocumentsCardView } from "@/components/DocumentsCardView";
+import { DocumentJsonModal } from "@/components/DocumentJsonModal";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { mongoshDocumentToObject } from "@/lib/mongoshQuery";
+import {
+  loadDocExplorerPrefs,
+  saveDocExplorerPrefs,
+  loadSpreadsheetPrefs,
+  saveSpreadsheetPrefs,
+  spreadsheetStorageKey,
+  type SpreadsheetLayoutPrefs,
+} from "@/lib/docExplorerPrefs";
 
 const CHART_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
 
@@ -130,6 +145,7 @@ function formatBytes(bytes: number) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
+
 export default function Explorer() {
   const params = useParams<{ connectionId?: string; database?: string; collection?: string }>();
   const [, setLocation] = useLocation();
@@ -146,7 +162,11 @@ export default function Explorer() {
   const [limit, setLimit] = useState(20);
   const [filterStr, setFilterStr] = useState("{}");
   const [sortStr, setSortStr] = useState("{}");
-  const [expandedDocs, setExpandedDocs] = useState<Set<string>>(new Set());
+  const [fullDocumentJsonModal, setFullDocumentJsonModal] = useState<{
+    docId: string;
+    draft: string;
+    initialJson: string;
+  } | null>(null);
   const [showInsertModal, setShowInsertModal] = useState(false);
   const [insertJson, setInsertJson] = useState("{\n  \n}");
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
@@ -175,9 +195,6 @@ export default function Explorer() {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
   const [showSingleDeleteConfirm, setShowSingleDeleteConfirm] = useState(false);
-  const [editingDocId, setEditingDocId] = useState<string | null>(null);
-  const [editingDocValue, setEditingDocValue] = useState("");
-  const [isSavingDoc, setIsSavingDoc] = useState(false);
   const [showCreateColModal, setShowCreateColModal] = useState(false);
   const [validationData, setValidationData] = useState<any>(null);
   const [isEditingValidation, setIsEditingValidation] = useState(false);
@@ -231,32 +248,13 @@ export default function Explorer() {
   const handleResetAll = () => {
     setFilterStr("{}");
     setSortStr("{}");
+    setAppliedFilterStr("{}");
+    setAppliedSortStr("{}");
     setLocalSearch("");
     setHiddenColumns(new Set());
     setPinnedDocs(new Set());
     setPage(1);
     toast({ title: "Filters Reset", description: "All filters, sorts, and views have been cleared." });
-  };
-
-  const handleSaveDoc = async (id: string) => {
-    try {
-      setIsSavingDoc(true);
-      const updatedData = JSON.parse(editingDocValue);
-      await updateDoc.mutateAsync({
-        connectionId,
-        dbName: database,
-        collectionName: collection,
-        documentId: id,
-        data: updatedData
-      });
-      setEditingDocId(null);
-      queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
-      toast({ title: "Document Updated", description: "The changes have been saved successfully." });
-    } catch (err) {
-      toast({ title: "Update Failed", description: err instanceof Error ? err.message : "Invalid JSON or update error", variant: "destructive" });
-    } finally {
-      setIsSavingDoc(false);
-    }
   };
 
   const [newColName, setNewColName] = useState("");
@@ -267,18 +265,81 @@ export default function Explorer() {
   const [colToDropDb, setColToDropDb] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [queryMode, setQueryMode] = useState<"visual" | "code">("visual");
-  // ── New Features State ──
-  const [docQueryMode, setDocQueryMode] = useState<"visual" | "code">("visual");
-  const [viewMode, setViewMode] = useState<"table" | "json" | "card">("table");
+  // ── New Features State (defaults + localStorage via loadDocExplorerPrefs) ──
+  const [docQueryMode, setDocQueryMode] = useState<"visual" | "code">(
+    () => loadDocExplorerPrefs().docQueryMode,
+  );
+  const [docCodeFormat, setDocCodeFormat] = useState<"json" | "mongosh">(
+    () => loadDocExplorerPrefs().docCodeFormat,
+  );
+  const [docQueryLive, setDocQueryLive] = useState(() => loadDocExplorerPrefs().docQueryLive);
+  const [docCodeEditorsExpanded, setDocCodeEditorsExpanded] = useState(
+    () => loadDocExplorerPrefs().docCodeEditorsExpanded,
+  );
+  /** When docQueryLive is false, the list uses these until Apply. */
+  const [appliedFilterStr, setAppliedFilterStr] = useState("{}");
+  const [appliedSortStr, setAppliedSortStr] = useState("{}");
+  const [viewMode, setViewMode] = useState<"table" | "spreadsheet" | "json" | "card">("table");
+  const [spreadsheetLayout, setSpreadsheetLayout] = useState<SpreadsheetLayoutPrefs>(() =>
+    loadSpreadsheetPrefs(""),
+  );
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [localSearch, setLocalSearch] = useState("");
-  const [allExpanded, setAllExpanded] = useState(false);
   const [pinnedDocs, setPinnedDocs] = useState<Set<string>>(new Set());
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(0);
   const [compareMode, setCompareMode] = useState(false);
   const [compareDocs, setCompareDocs] = useState<string[]>([]);
   const [inlineEditCell, setInlineEditCell] = useState<{ docId: string; field: string; value: string } | null>(null);
   const [showColumnManager, setShowColumnManager] = useState(false);
+
+  const spSheetKey = useMemo(
+    () =>
+      connectionId && database && collection
+        ? spreadsheetStorageKey(connectionId, database, collection)
+        : "",
+    [connectionId, database, collection],
+  );
+
+  useEffect(() => {
+    saveDocExplorerPrefs({
+      docQueryMode,
+      docCodeFormat,
+      docQueryLive,
+      docCodeEditorsExpanded,
+    });
+  }, [docQueryMode, docCodeFormat, docQueryLive, docCodeEditorsExpanded]);
+
+  useEffect(() => {
+    if (!spSheetKey) return;
+    setSpreadsheetLayout(loadSpreadsheetPrefs(spSheetKey));
+  }, [spSheetKey]);
+
+  const spreadsheetSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (!spSheetKey) return;
+    if (spreadsheetSaveTimer.current) clearTimeout(spreadsheetSaveTimer.current);
+    spreadsheetSaveTimer.current = setTimeout(() => {
+      saveSpreadsheetPrefs(spSheetKey, spreadsheetLayout);
+    }, 400);
+    return () => {
+      if (spreadsheetSaveTimer.current) clearTimeout(spreadsheetSaveTimer.current);
+    };
+  }, [spreadsheetLayout, spSheetKey]);
+
+  useEffect(() => {
+    setFilterStr("{}");
+    setSortStr("{}");
+    setAppliedFilterStr("{}");
+    setAppliedSortStr("{}");
+    setPage(1);
+  }, [connectionId, database, collection]);
+
+  const applyDocumentQuery = useCallback(() => {
+    setAppliedFilterStr(filterStr);
+    setAppliedSortStr(sortStr);
+    setPage(1);
+    queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
+  }, [filterStr, sortStr, connectionId, database, collection, queryClient]);
 
   const parseFilter = useCallback((str: string) => {
     if (!str || str.trim() === "") return {};
@@ -288,6 +349,53 @@ export default function Explorer() {
       throw new Error(`Invalid JSON: ${err.message}`);
     }
   }, []);
+
+  const documentsListParams = useMemo(() => {
+    const effFilterStr = docQueryLive ? filterStr : appliedFilterStr;
+    const effSortStr = docQueryLive ? sortStr : appliedSortStr;
+    const emptyFilter = !effFilterStr.trim() || effFilterStr.trim() === "{}";
+    const emptySort = !effSortStr.trim() || effSortStr.trim() === "{}";
+
+    if (docQueryMode !== "code" || docCodeFormat === "json") {
+      return {
+        page,
+        limit,
+        filter: emptyFilter ? undefined : effFilterStr,
+        sort: emptySort ? undefined : effSortStr,
+        parseError: null as string | null,
+      };
+    }
+
+    try {
+      return {
+        page,
+        limit,
+        filter: emptyFilter ? undefined : JSON.stringify(mongoshDocumentToObject(effFilterStr)),
+        sort: emptySort ? undefined : JSON.stringify(mongoshDocumentToObject(effSortStr)),
+        parseError: null as string | null,
+      };
+    } catch (e) {
+      return {
+        page,
+        limit,
+        filter: undefined,
+        sort: undefined,
+        parseError: e instanceof Error ? e.message : String(e),
+      };
+    }
+  }, [
+    docQueryMode,
+    docCodeFormat,
+    docQueryLive,
+    filterStr,
+    appliedFilterStr,
+    sortStr,
+    appliedSortStr,
+    page,
+    limit,
+  ]);
+
+  const shellQueryBlocked = documentsListParams.parseError !== null;
 
   const { data: dbsData, isLoading: dbsLoading } = useListDatabases(connectionId, {
     query: { enabled: !!connectionId, queryKey: getListDatabasesQueryKey(connectionId) }
@@ -299,8 +407,23 @@ export default function Explorer() {
 
   const { data: docsData, isLoading: docsLoading, error: docsError } = useListDocuments(
     connectionId, database, collection,
-    { page, limit, filter: filterStr !== "{}" ? filterStr : undefined, sort: sortStr !== "{}" ? sortStr : undefined },
-    { query: { enabled: !!connectionId && !!database && !!collection, queryKey: getListDocumentsQueryKey(connectionId, database, collection, { page, limit }) } }
+    {
+      page: documentsListParams.page,
+      limit: documentsListParams.limit,
+      filter: documentsListParams.filter,
+      sort: documentsListParams.sort,
+    },
+    {
+      query: {
+        enabled: !!connectionId && !!database && !!collection && !shellQueryBlocked,
+        queryKey: getListDocumentsQueryKey(connectionId, database, collection, {
+          page: documentsListParams.page,
+          limit: documentsListParams.limit,
+          filter: documentsListParams.filter,
+          sort: documentsListParams.sort,
+        }),
+      },
+    },
   );
 
   const { data: schemaData, isLoading: schemaLoading, refetch: refetchSchema } = useAnalyzeSchema(connectionId, database, collection, {}, {
@@ -386,17 +509,124 @@ export default function Explorer() {
     toast({ title: "Copied to clipboard" });
   };
 
-  const handleInlineEdit = async (docId: string, field: string, newValue: string) => {
+  const handleQuickFilter = useCallback((field: string, value: unknown) => {
+    let filter: any = {};
+    try {
+      filter = JSON.parse(filterStr || "{}");
+    } catch {
+      filter = {};
+    }
+    const nextFilter = { ...filter, [field]: value };
+    const nextFilterStr = JSON.stringify(nextFilter, null, 2);
+    setFilterStr(nextFilterStr);
+    
+    if (docQueryLive) {
+      setPage(1);
+    } else {
+      setAppliedFilterStr(nextFilterStr);
+      setPage(1);
+      queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
+    }
+    
+    toast({ 
+      title: "Quick Filter Applied", 
+      description: `Added "${field}": ${String(value).slice(0, 20)} to query.` 
+    });
+  }, [filterStr, docQueryLive, connectionId, database, collection, queryClient, toast]);
+
+  const handleInlineEdit = async (
+    docId: string,
+    field: string,
+    newValue: string,
+    previousValue?: string,
+  ): Promise<boolean> => {
+    if (previousValue !== undefined) {
+      const norm = (s: string) => {
+        const t = s.trim();
+        if (t === "") return "";
+        try {
+          return JSON.stringify(JSON.parse(t));
+        } catch {
+          return t;
+        }
+      };
+      if (norm(previousValue) === norm(newValue)) {
+        setInlineEditCell(null);
+        return true;
+      }
+    }
     try {
       let parsed: unknown = newValue;
-      try { parsed = JSON.parse(newValue); } catch { parsed = newValue; }
+      try {
+        parsed = JSON.parse(newValue);
+      } catch {
+        parsed = newValue;
+      }
       const update = { $set: { [field]: parsed } };
-      await updateDoc.mutateAsync({ connectionId, dbName: database, collectionName: collection, documentId: docId, data: { update } });
+      await updateDoc.mutateAsync({
+        connectionId,
+        dbName: database,
+        collectionName: collection,
+        documentId: docId,
+        data: { update },
+      });
       queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
       setInlineEditCell(null);
       toast({ title: "Field updated" });
+      return true;
     } catch (err: any) {
       toast({ title: "Update failed", description: err.message, variant: "destructive" });
+      return false;
+    }
+  };
+
+  const openFullDocumentJsonModal = (doc: Record<string, unknown>) => {
+    const docId = String(doc._id ?? "");
+    const s = JSON.stringify(doc, null, 2);
+    setFullDocumentJsonModal({ docId, draft: s, initialJson: s });
+  };
+
+  const handleFullDocumentJsonModalSave = async () => {
+    if (!fullDocumentJsonModal) return;
+    const norm = (txt: string) => {
+      const t = txt.trim();
+      if (t === "") return "";
+      try {
+        return JSON.stringify(JSON.parse(t));
+      } catch {
+        return t;
+      }
+    };
+    if (norm(fullDocumentJsonModal.initialJson) === norm(fullDocumentJsonModal.draft)) {
+      setFullDocumentJsonModal(null);
+      return;
+    }
+    try {
+      const update = JSON.parse(fullDocumentJsonModal.draft);
+      if (typeof update !== "object" || update === null || Array.isArray(update)) {
+        toast({
+          title: "Invalid document",
+          description: "Root must be a JSON object.",
+          variant: "destructive",
+        });
+        return;
+      }
+      await updateDoc.mutateAsync({
+        connectionId,
+        dbName: database,
+        collectionName: collection,
+        documentId: fullDocumentJsonModal.docId,
+        data: { update: update as Record<string, unknown>, replace: true },
+      });
+      queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
+      setFullDocumentJsonModal(null);
+      toast({ title: "Document updated" });
+    } catch (err: unknown) {
+      toast({
+        title: "Update failed",
+        description: err instanceof Error ? err.message : "Invalid JSON",
+        variant: "destructive",
+      });
     }
   };
 
@@ -600,7 +830,102 @@ export default function Explorer() {
     }
   };
 
-  const docs = docsData?.documents as Record<string, unknown>[] || [];
+  const docs = shellQueryBlocked
+    ? []
+    : ((docsData?.documents as Record<string, unknown>[]) || []);
+
+  const sortedVisibleDocs = useMemo(() => {
+    let filteredDocs = docs;
+    if (localSearch.trim()) {
+      const q = localSearch.toLowerCase();
+      filteredDocs = docs.filter((doc) =>
+        Object.values(doc).some((v) => String(v ?? "").toLowerCase().includes(q)),
+      );
+    }
+    return [...filteredDocs].sort((a, b) => {
+      const aPin = pinnedDocs.has(String(a._id)) ? 0 : 1;
+      const bPin = pinnedDocs.has(String(b._id)) ? 0 : 1;
+      return aPin - bPin;
+    });
+  }, [docs, localSearch, pinnedDocs]);
+
+  const visibleJsonPayloadBytes = useMemo(
+    () => new Blob([JSON.stringify(sortedVisibleDocs)]).size,
+    [sortedVisibleDocs],
+  );
+
+  const documentsContentRef = useRef<HTMLDivElement>(null);
+  const [docScrollShowTop, setDocScrollShowTop] = useState(false);
+
+  const handleDocContentScroll = useCallback(() => {
+    const el = documentsContentRef.current;
+    if (!el) return;
+    setDocScrollShowTop(el.scrollTop > 320);
+  }, []);
+
+  const scrollDocumentsToTop = useCallback(() => {
+    documentsContentRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        document.querySelector<HTMLInputElement>("[data-doc-page-search]")?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const copyDocIdToast = useCallback(
+    (id: string) => {
+      void navigator.clipboard.writeText(id);
+      toast({
+        title: "_id copied",
+        description: id.length > 56 ? `${id.slice(0, 28)}…` : id,
+      });
+    },
+    [toast],
+  );
+
+  const exportVisibleDocumentsJson = useCallback(() => {
+    if (sortedVisibleDocs.length === 0) {
+      toast({ title: "Nothing to export", variant: "destructive" });
+      return;
+    }
+    const blob = new Blob([JSON.stringify(sortedVisibleDocs, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${database}-${collection}-page${page}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported JSON", description: `${sortedVisibleDocs.length} document(s)` });
+  }, [sortedVisibleDocs, database, collection, page, toast]);
+
+  const copyVisibleDocumentIds = useCallback(() => {
+    if (sortedVisibleDocs.length === 0) {
+      toast({ title: "No documents", variant: "destructive" });
+      return;
+    }
+    const t = sortedVisibleDocs.map((d) => String(d._id)).join("\n");
+    void navigator.clipboard.writeText(t);
+    toast({ title: "Copied _id list", description: `${sortedVisibleDocs.length} id(s), one per line` });
+  }, [sortedVisibleDocs, toast]);
+
+  const invertDocumentSelection = useCallback(() => {
+    const allIds = new Set(sortedVisibleDocs.map((d) => String(d._id)));
+    setSelectedDocs((prev) => {
+      const next = new Set<string>();
+      allIds.forEach((id) => {
+        if (!prev.has(id)) next.add(id);
+      });
+      return next;
+    });
+    toast({ title: "Selection inverted", description: "Bulk actions apply to the new selection" });
+  }, [sortedVisibleDocs, toast]);
+
   const allFields = useMemo(() => {
     if (schemaData?.fields && schemaData.fields.length > 0) {
       return Array.from(new Set([
@@ -878,10 +1203,11 @@ export default function Explorer() {
             <TabsContent value="documents" className="flex-1 flex flex-col overflow-hidden m-0">
               {/* ── Query Header ── */}
               <div className="px-4 py-2 border-b border-border bg-card shrink-0 space-y-0">
-                {/* Visual / Code toggle */}
-                <div className="flex items-center gap-1.5 mb-1.5">
+                {/* Visual / Code + Live / Apply mode */}
+                <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                   <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
                     <button
+                      type="button"
                       className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${
                         docQueryMode === "visual" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
                       }`}
@@ -890,12 +1216,37 @@ export default function Explorer() {
                       <MousePointerClick className="w-2.5 h-2.5" /> Visual
                     </button>
                     <button
+                      type="button"
                       className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${
                         docQueryMode === "code" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
                       }`}
                       onClick={() => setDocQueryMode("code")}
                     >
                       <Code className="w-2.5 h-2.5" /> Code
+                    </button>
+                  </div>
+                  <div className="flex items-center rounded-md border border-border/50 overflow-hidden" title="When off, the grid updates only after Apply.">
+                    <button
+                      type="button"
+                      className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${
+                        docQueryLive ? "bg-emerald-600/90 text-white" : "text-muted-foreground hover:bg-muted"
+                      }`}
+                      onClick={() => setDocQueryLive(true)}
+                    >
+                      <Zap className="w-2.5 h-2.5" /> Live
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${
+                        !docQueryLive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                      }`}
+                      onClick={() => {
+                        setAppliedFilterStr(filterStr);
+                        setAppliedSortStr(sortStr);
+                        setDocQueryLive(false);
+                      }}
+                    >
+                      <Play className="w-2.5 h-2.5" /> Apply mode
                     </button>
                   </div>
                   <Button
@@ -922,7 +1273,15 @@ export default function Explorer() {
                     onFilterChange={val => setFilterStr(val || "{}")}
                     onSortChange={val => setSortStr(val || "{}")}
                     fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
-                    onExecute={() => { setPage(1); queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }); }}
+                    liveQuery={docQueryLive}
+                    onExecute={(payload) => {
+                      setPage(1);
+                      if (payload) {
+                        setAppliedFilterStr(payload.filter);
+                        setAppliedSortStr(payload.sort);
+                      }
+                      queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
+                    }}
                     isExecuting={docsLoading}
                     compact
                   />
@@ -930,32 +1289,131 @@ export default function Explorer() {
 
                 {/* Code query editors */}
                 {docQueryMode === "code" && (
-                  <div className="flex items-center gap-2">
-                    <QueryEditor
-                      value={filterStr === "{}" ? "" : filterStr}
-                      onChange={val => setFilterStr(val || "{}")}
-                      placeholder='Filter: { "field": "value" }'
-                      fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
-                      height="32px"
-                      className="flex-1"
-                      mode="filter"
-                    />
-                    <SortAsc className="w-3 h-3 text-muted-foreground shrink-0" />
-                    <QueryEditor
-                      value={sortStr === "{}" ? "" : sortStr}
-                      onChange={val => setSortStr(val || "{}")}
-                      placeholder='Sort: { "field": -1 }'
-                      fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
-                      height="32px"
-                      className="w-40"
-                      mode="sort"
-                    />
-                    <Button
-                      size="sm" variant="outline" className="h-7 text-[10px] gap-1"
-                      onClick={() => { setPage(1); queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }); }}
-                    >
-                      <Play className="w-2.5 h-2.5" /> Apply
-                    </Button>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[9px] text-muted-foreground uppercase tracking-wider shrink-0">Format</span>
+                      <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
+                        <button
+                          type="button"
+                          className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+                            docCodeFormat === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                          }`}
+                          onClick={() => setDocCodeFormat("json")}
+                        >
+                          Strict JSON
+                        </button>
+                        <button
+                          type="button"
+                          className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+                            docCodeFormat === "mongosh" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
+                          }`}
+                          onClick={() => setDocCodeFormat("mongosh")}
+                          title="mongosh / CLI style: ObjectId(), ISODate(), unquoted keys, db.coll.find({ ... })"
+                        >
+                          mongosh (CLI)
+                        </button>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-[10px] gap-1 text-muted-foreground"
+                        onClick={() => setDocCodeEditorsExpanded((e) => !e)}
+                        title={docCodeEditorsExpanded ? "Compact editors" : "Expand editors"}
+                      >
+                        <ChevronsDownUp className="w-3 h-3" />
+                        {docCodeEditorsExpanded ? "Compact" : "Expand"}
+                      </Button>
+                      <span className="text-[9px] text-muted-foreground hidden md:inline">
+                        {docCodeFormat === "mongosh"
+                          ? "Shell-style query; Ctrl+Enter runs Apply when in Apply mode."
+                          : "Strict JSON; Ctrl+Enter runs Apply when in Apply mode."}
+                      </span>
+                    </div>
+                    {shellQueryBlocked && documentsListParams.parseError && (
+                      <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="font-mono leading-snug">{documentsListParams.parseError}</span>
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-2">
+                      <QueryEditor
+                        value={filterStr === "{}" ? "" : filterStr}
+                        onChange={val => setFilterStr(val || "{}")}
+                        placeholder={
+                          docCodeFormat === "mongosh"
+                            ? '{ status: "active" } or db.users.find({ _id: ObjectId("...") })'
+                            : 'Filter: { "field": "value" }'
+                        }
+                        fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
+                        height={
+                          docCodeEditorsExpanded
+                            ? docCodeFormat === "mongosh"
+                              ? "260px"
+                              : "220px"
+                            : docCodeFormat === "mongosh"
+                              ? "100px"
+                              : "88px"
+                        }
+                        className="flex-1 min-w-0 w-full"
+                        mode="filter"
+                        syntax={docCodeFormat === "mongosh" ? "mongosh" : "json"}
+                        onExecute={
+                          docQueryLive
+                            ? () =>
+                                queryClient.invalidateQueries({
+                                  queryKey: getListDocumentsQueryKey(connectionId, database, collection),
+                                })
+                            : applyDocumentQuery
+                        }
+                      />
+                      <div className="flex flex-col gap-2 min-[520px]:flex-row min-[520px]:items-end">
+                        <div className="flex items-center gap-1 text-[9px] text-muted-foreground min-[520px]:hidden">
+                          <SortAsc className="w-3 h-3 shrink-0" /> Sort
+                        </div>
+                        <QueryEditor
+                          value={sortStr === "{}" ? "" : sortStr}
+                          onChange={val => setSortStr(val || "{}")}
+                          placeholder={
+                            docCodeFormat === "mongosh"
+                              ? "{ createdAt: -1 }"
+                              : 'Sort: { "field": -1 }'
+                          }
+                          fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
+                          height={
+                            docCodeEditorsExpanded
+                              ? docCodeFormat === "mongosh"
+                                ? "120px"
+                                : "100px"
+                              : docCodeFormat === "mongosh"
+                                ? "72px"
+                                : "64px"
+                          }
+                          className="flex-1 min-w-0 w-full min-[520px]:max-w-xs"
+                          mode="sort"
+                          syntax={docCodeFormat === "mongosh" ? "mongosh" : "json"}
+                          onExecute={
+                            docQueryLive
+                              ? () =>
+                                  queryClient.invalidateQueries({
+                                    queryKey: getListDocumentsQueryKey(connectionId, database, collection),
+                                  })
+                              : applyDocumentQuery
+                          }
+                        />
+                        {!docQueryLive && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-8 text-[10px] gap-1 shrink-0"
+                            type="button"
+                            onClick={applyDocumentQuery}
+                          >
+                            <Play className="w-2.5 h-2.5" /> Apply query
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -981,6 +1439,12 @@ export default function Explorer() {
                     onClick={() => setViewMode("card")} title="Card view"
                   >
                     <LayoutGrid className="w-3 h-3" />
+                  </button>
+                  <button
+                    className={`px-1.5 py-0.5 transition-colors ${viewMode === "spreadsheet" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}
+                    onClick={() => setViewMode("spreadsheet")} title="Spreadsheet — fixed # / actions, resizable columns & rows"
+                  >
+                    <Grid3x3 className="w-3 h-3" />
                   </button>
                 </div>
 
@@ -1018,22 +1482,6 @@ export default function Explorer() {
                   )}
                 </div>
 
-                {/* Expand all / Collapse all */}
-                <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1"
-                  onClick={() => {
-                    if (allExpanded) {
-                      setExpandedDocs(new Set());
-                      setAllExpanded(false);
-                    } else {
-                      setExpandedDocs(new Set(docs.map(d => String(d._id))));
-                      setAllExpanded(true);
-                    }
-                  }}
-                >
-                  {allExpanded ? <Minimize2 className="w-2.5 h-2.5" /> : <Maximize2 className="w-2.5 h-2.5" />}
-                  {allExpanded ? "Collapse" : "Expand"}
-                </Button>
-
                 {/* Compare */}
                 <Button
                   variant={compareMode ? "default" : "ghost"} size="sm" className="h-6 text-[10px] gap-1"
@@ -1043,16 +1491,65 @@ export default function Explorer() {
                   {compareMode && compareDocs.length > 0 && <span className="ml-0.5">({compareDocs.length}/2)</span>}
                 </Button>
 
+                {docs.length > 0 && (
+                  <>
+                    <Badge variant="secondary" className="h-6 px-2 text-[10px] font-normal tabular-nums">
+                      {sortedVisibleDocs.length} shown
+                    </Badge>
+                    <Badge variant="outline" className="h-6 px-2 text-[10px] font-normal text-muted-foreground tabular-nums hidden sm:inline-flex" title="Approx. JSON size of visible rows">
+                      {visibleJsonPayloadBytes >= 1024
+                        ? `${(visibleJsonPayloadBytes / 1024).toFixed(1)} KB`
+                        : `${visibleJsonPayloadBytes} B`}
+                    </Badge>
+                  </>
+                )}
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[10px] gap-1"
+                  title="Download visible documents as JSON"
+                  onClick={exportVisibleDocumentsJson}
+                  disabled={sortedVisibleDocs.length === 0}
+                >
+                  <Download className="w-2.5 h-2.5" /> Export
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-[10px] gap-1"
+                  title="Copy all visible _id values (one per line)"
+                  onClick={copyVisibleDocumentIds}
+                  disabled={sortedVisibleDocs.length === 0}
+                >
+                  <ListTree className="w-2.5 h-2.5" /> Copy IDs
+                </Button>
+                {(viewMode === "table" || viewMode === "spreadsheet") && !compareMode && sortedVisibleDocs.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] gap-1"
+                    title="Invert bulk selection on this page"
+                    onClick={invertDocumentSelection}
+                  >
+                    Invert sel.
+                  </Button>
+                )}
+
                 <div className="w-px h-4 bg-border/30" />
 
                 {/* Quick search */}
-                <div className="flex items-center gap-1 bg-muted/30 rounded px-1.5 border border-border/30">
+                <div className="flex items-center gap-1 bg-muted/30 rounded px-1.5 border border-border/30" title="Focus: ⌘K / Ctrl+K">
                   <Search className="w-2.5 h-2.5 text-muted-foreground" />
                   <input
+                    data-doc-page-search
                     type="text" value={localSearch}
                     onChange={e => setLocalSearch(e.target.value)}
-                    placeholder="Search in page..."
-                    className="bg-transparent text-[10px] w-24 outline-none placeholder:text-muted-foreground/50 py-0.5"
+                    placeholder="Search… ⌘K"
+                    className="bg-transparent text-[10px] w-24 md:w-28 outline-none placeholder:text-muted-foreground/50 py-0.5"
                   />
                   {localSearch && (
                     <button className="text-muted-foreground hover:text-foreground" onClick={() => setLocalSearch("")}>
@@ -1098,7 +1595,7 @@ export default function Explorer() {
                         <X className="w-2.5 h-2.5" /> Close
                       </Button>
                     </div>
-                    <div className="grid grid-cols-2 gap-0 max-h-48 overflow-auto">
+                    <div className="grid grid-cols-2 gap-0 max-h-[min(50vh,28rem)] overflow-auto">
                       {allKeys.map(key => {
                         const vA = JSON.stringify(docA[key] ?? null);
                         const vB = JSON.stringify(docB[key] ?? null);
@@ -1122,7 +1619,12 @@ export default function Explorer() {
               })()}
 
               {/* ── Document Content ── */}
-              <div className="flex-1 overflow-auto" onClick={() => { if (showColumnManager) setShowColumnManager(false); }}>
+              <div
+                ref={documentsContentRef}
+                onScroll={handleDocContentScroll}
+                className="flex-1 overflow-auto relative"
+                onClick={() => { if (showColumnManager) setShowColumnManager(false); }}
+              >
                 {docsError && (
                   <div className="p-4 flex items-center gap-3 bg-destructive/10 border-b border-destructive/20 text-destructive text-sm">
                     <AlertCircle className="w-4 h-4" />
@@ -1144,76 +1646,128 @@ export default function Explorer() {
                     </div>
                   </div>
                 ) : (() => {
-                  // Filter docs locally
                   const visibleFields = allFields.filter(f => !hiddenColumns.has(f));
-                  let filteredDocs = docs;
-                  if (localSearch.trim()) {
-                    const q = localSearch.toLowerCase();
-                    filteredDocs = docs.filter(doc =>
-                      Object.values(doc).some(v => String(v ?? "").toLowerCase().includes(q))
-                    );
-                  }
-                  // Sort pinned to top
-                  const sortedDocs = [...filteredDocs].sort((a, b) => {
-                    const aPin = pinnedDocs.has(String(a._id)) ? 0 : 1;
-                    const bPin = pinnedDocs.has(String(b._id)) ? 0 : 1;
-                    return aPin - bPin;
-                  });
+                  const sortedDocs = sortedVisibleDocs;
 
                   // ─── JSON View ───
                   if (viewMode === "json") {
                     return (
-                      <div className="divide-y divide-border p-2 space-y-2">
-                        {sortedDocs.map((doc) => {
-                          const docId = String(doc._id || "");
-                          return (
-                            <div key={docId} className={`rounded-lg border border-border/50 p-3 ${pinnedDocs.has(docId) ? "border-l-2 border-l-amber-500 bg-amber-500/[0.02]" : ""}`}>
-                              <div className="flex items-center gap-1.5 mb-2">
-                                <span className="text-[9px] font-mono text-muted-foreground">{docId.slice(0, 10)}…</span>
-                                <div className="flex-1" />
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleCopyDoc(doc)} title="Copy JSON">
-                                  <Copy className="w-2.5 h-2.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setPinnedDocs(prev => { const n = new Set(prev); if (n.has(docId)) n.delete(docId); else n.add(docId); return n; })} title="Pin">
-                                  <Pin className={`w-2.5 h-2.5 ${pinnedDocs.has(docId) ? "text-amber-400" : ""}`} />
-                                </Button>
-                              </div>
-                              <pre className="font-mono text-[10px] text-emerald-400 overflow-auto max-h-40">{JSON.stringify(doc, null, 2)}</pre>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <DocumentsJsonView
+                        docs={sortedDocs as Record<string, unknown>[]}
+                        pinnedDocIds={pinnedDocs}
+                        onTogglePin={(id) =>
+                          setPinnedDocs((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(id)) n.delete(id);
+                            else n.add(id);
+                            return n;
+                          })
+                        }
+                        onCopy={handleCopyDoc}
+                        onDuplicate={handleDuplicateDoc}
+                        searchQuery={localSearch}
+                        onOpenDocument={openFullDocumentJsonModal}
+                        compareMode={compareMode}
+                        compareDocs={compareDocs}
+                        onToggleCompare={(docId, checked) =>
+                          setCompareDocs((prev) => {
+                            if (!checked) return prev.filter((x) => x !== docId);
+                            if (prev.includes(docId)) return prev;
+                            if (prev.length >= 2) return prev;
+                            return [...prev, docId];
+                          })
+                        }
+                      />
                     );
                   }
 
                   // ─── Card View ───
                   if (viewMode === "card") {
                     return (
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 p-3">
-                        {sortedDocs.map((doc) => {
-                          const docId = String(doc._id || "");
-                          return (
-                            <div key={docId} className={`rounded-lg border border-border/50 p-3 hover:border-border transition-colors ${pinnedDocs.has(docId) ? "border-l-2 border-l-amber-500 bg-amber-500/[0.02]" : ""}`}>
-                              <div className="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-border/30">
-                                <span className="text-[9px] font-mono text-muted-foreground truncate flex-1">{docId}</span>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleCopyDoc(doc)}><Copy className="w-2.5 h-2.5" /></Button>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => handleDuplicateDoc(doc)}><Plus className="w-2.5 h-2.5" /></Button>
-                                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setPinnedDocs(prev => { const n = new Set(prev); if (n.has(docId)) n.delete(docId); else n.add(docId); return n; })}>
-                                  <Pin className={`w-2.5 h-2.5 ${pinnedDocs.has(docId) ? "text-amber-400" : ""}`} />
-                                </Button>
-                              </div>
-                              <div className="space-y-0.5">
-                                {visibleFields.filter(f => f !== "_id").map(f => (
-                                  <div key={f} className="flex items-start gap-1.5 text-[10px]">
-                                    <span className="font-mono text-muted-foreground shrink-0 w-20 truncate">{f}</span>
-                                    <span className="font-mono break-all">{doc[f] === undefined ? "—" : typeof doc[f] === "object" ? JSON.stringify(doc[f]).slice(0, 50) : String(doc[f]).slice(0, 50)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <DocumentsCardView
+                        docs={sortedDocs}
+                        visibleFields={visibleFields}
+                        pinnedDocIds={pinnedDocs}
+                        onTogglePin={(id) =>
+                          setPinnedDocs((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(id)) n.delete(id);
+                            else n.add(id);
+                            return n;
+                          })
+                        }
+                        onCopy={handleCopyDoc}
+                        onDuplicate={handleDuplicateDoc}
+                        onQuickFilter={handleQuickFilter}
+                        onOpenDocument={openFullDocumentJsonModal}
+                        compareMode={compareMode}
+                        compareDocs={compareDocs}
+                        onToggleCompare={(docId, checked) =>
+                          setCompareDocs((prev) => {
+                            if (!checked) return prev.filter((x) => x !== docId);
+                            if (prev.includes(docId)) return prev;
+                            if (prev.length >= 2) return prev;
+                            return [...prev, docId];
+                          })
+                        }
+                      />
+                    );
+                  }
+
+                  // ─── Spreadsheet View ───
+                  if (viewMode === "spreadsheet") {
+                    return (
+                      <DocumentsSpreadsheetView
+                        docs={sortedDocs}
+                        visibleFields={visibleFields}
+                        layout={spreadsheetLayout}
+                        onLayoutChange={setSpreadsheetLayout}
+                        handlers={{
+                          onOpenFullDocument: openFullDocumentJsonModal,
+                          onCopy: handleCopyDoc,
+                          onDuplicate: handleDuplicateDoc,
+                          onPin: (docId) =>
+                            setPinnedDocs((prev) => {
+                              const n = new Set(prev);
+                              if (n.has(docId)) n.delete(docId);
+                              else n.add(docId);
+                              return n;
+                            }),
+                          isPinned: (id) => pinnedDocs.has(id),
+                          onEdit: (docId, doc) => {
+                            setEditDocId(docId);
+                            const { _id: _oid, ...rest } = doc;
+                            setEditJson(JSON.stringify(rest, null, 2));
+                            setShowEditModal(true);
+                          },
+                          onDelete: (docId) => {
+                            setDocToDelete(docId);
+                            setShowSingleDeleteConfirm(true);
+                          },
+                          compareMode,
+                          compareDocs,
+                          onToggleCompare: (docId, checked) =>
+                            setCompareDocs((prev) => {
+                              if (!checked) return prev.filter((x) => x !== docId);
+                              if (prev.includes(docId)) return prev;
+                              if (prev.length >= 2) return prev;
+                              return [...prev, docId];
+                            }),
+                          selectedDocs,
+                          onToggleSelect: (docId, checked) =>
+                            setSelectedDocs((prev) => {
+                              const n = new Set(prev);
+                              if (checked) n.add(docId);
+                              else n.delete(docId);
+                              return n;
+                            }),
+                          onSelectAll: (checked, ids) =>
+                            setSelectedDocs(checked ? new Set(ids) : new Set()),
+                          inlineEditCell,
+                          onInlineEdit: handleInlineEdit,
+                          setInlineEditCell,
+                        }}
+                      />
                     );
                   }
 
@@ -1238,7 +1792,6 @@ export default function Explorer() {
 
                       {sortedDocs.map((doc) => {
                         const docId = String(doc._id || "");
-                        const isExpanded = expandedDocs.has(docId);
                         const isPinned = pinnedDocs.has(docId);
                         return (
                           <div key={docId} data-testid={`row-doc-${docId}`} className={isPinned ? "border-l-2 border-l-amber-500 bg-amber-500/[0.02]" : ""}>
@@ -1251,7 +1804,13 @@ export default function Explorer() {
                                     checked={compareDocs.includes(docId)}
                                     disabled={compareDocs.length >= 2 && !compareDocs.includes(docId)}
                                     onChange={e => {
-                                      setCompareDocs(prev => e.target.checked ? [...prev, docId] : prev.filter(id => id !== docId));
+                                      const on = e.target.checked;
+                                      setCompareDocs(prev => {
+                                        if (!on) return prev.filter(id => id !== docId);
+                                        if (prev.includes(docId)) return prev;
+                                        if (prev.length >= 2) return prev;
+                                        return [...prev, docId];
+                                      });
                                     }}
                                   />
                                 ) : (
@@ -1276,124 +1835,175 @@ export default function Explorer() {
                                       autoFocus
                                       defaultValue={inlineEditCell.value}
                                       className="text-xs font-mono w-full bg-muted/50 border border-primary rounded px-1 py-0.5 outline-none"
-                                      onBlur={e => handleInlineEdit(docId, f, e.target.value)}
+                                      onBlur={e =>
+                                        handleInlineEdit(docId, f, e.target.value, inlineEditCell.value)
+                                      }
                                       onKeyDown={e => {
-                                        if (e.key === "Enter") handleInlineEdit(docId, f, (e.target as HTMLInputElement).value);
+                                        if (e.key === "Enter")
+                                          handleInlineEdit(
+                                            docId,
+                                            f,
+                                            (e.target as HTMLInputElement).value,
+                                            inlineEditCell.value,
+                                          );
                                         if (e.key === "Escape") setInlineEditCell(null);
                                       }}
                                     />
                                   ) : (
-                                    <span
-                                      className="text-xs font-mono truncate block max-w-[120px] cursor-pointer hover:text-primary transition-colors"
-                                      onDoubleClick={() => {
-                                        if (f === "_id") return;
-                                        const raw = doc[f];
-                                        setInlineEditCell({ docId, field: f, value: typeof raw === "object" ? JSON.stringify(raw) : String(raw ?? "") });
-                                      }}
-                                      title="Double-click to edit"
-                                    >
-                                      {doc[f] === null ? (
-                                        <span className="text-muted-foreground">null</span>
-                                      ) : doc[f] === undefined ? (
-                                        <span className="text-muted-foreground/50">—</span>
-                                      ) : typeof doc[f] === "object" ? (
-                                        <span className="text-blue-400">{"{…}"}</span>
-                                      ) : (
-                                        <span>{String(doc[f]).slice(0, 40)}</span>
-                                      )}
-                                    </span>
+                                    f === "_id" ? (
+                                      <button
+                                        type="button"
+                                        className="text-xs font-mono truncate block max-w-[120px] text-left cursor-pointer hover:text-primary transition-colors"
+                                        title="Click: copy _id · Double-click disabled"
+                                        onClick={() => copyDocIdToast(String(doc[f] ?? docId))}
+                                      >
+                                        {String(doc[f] ?? docId).slice(0, 40)}
+                                      </button>
+                                    ) : (
+                                      <span
+                                        className="text-xs font-mono truncate block max-w-[120px] cursor-pointer hover:text-primary transition-colors"
+                                        onDoubleClick={() => {
+                                          const raw = doc[f];
+                                          setInlineEditCell({ docId, field: f, value: typeof raw === "object" ? JSON.stringify(raw) : String(raw ?? "") });
+                                        }}
+                                        title="Double-click to edit"
+                                      >
+                                        {doc[f] === null ? (
+                                          <span className="text-muted-foreground">null</span>
+                                        ) : doc[f] === undefined ? (
+                                          <span className="text-muted-foreground/50">—</span>
+                                        ) : typeof doc[f] === "object" ? (
+                                          <span className="text-blue-400">{"{…}"}</span>
+                                        ) : (
+                                          <span>{String(doc[f]).slice(0, 40)}</span>
+                                        )}
+                                      </span>
+                                    )
                                   )}
                                 </div>
                               ))}
                               <div className="w-28 shrink-0 flex items-center justify-end gap-0.5">
-                                <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-                                  onClick={() => setExpandedDocs(prev => { const n = new Set(prev); if (n.has(docId)) n.delete(docId); else n.add(docId); return n; })}
-                                >
-                                  {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-muted-foreground hover:text-blue-400"
-                                  onClick={() => handleCopyDoc(doc)} title="Copy JSON"
-                                >
-                                  <Copy className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-muted-foreground hover:text-emerald-400"
-                                  onClick={() => handleDuplicateDoc(doc)} title="Duplicate"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="ghost" className={`h-5 w-5 p-0 ${isPinned ? "text-amber-400" : "text-muted-foreground hover:text-amber-400"}`}
-                                  onClick={() => setPinnedDocs(prev => { const n = new Set(prev); if (n.has(docId)) n.delete(docId); else n.add(docId); return n; })}
-                                  title="Pin"
-                                >
-                                  <Pin className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-muted-foreground hover:text-blue-400"
-                                  onClick={() => { setEditDocId(docId); const { _id, ...rest } = doc; setEditJson(JSON.stringify(rest, null, 2)); setShowEditModal(true); }}
-                                >
-                                  <Settings className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
-                                  onClick={() => { setDocToDelete(docId); setShowSingleDeleteConfirm(true); }}
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            </div>
-                            {isExpanded && (
-                              <div className="px-12 py-3 bg-muted/10 border-t border-border font-mono text-xs overflow-hidden">
-                                {editingDocId === docId ? (
-                                  <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold font-sans">Editing Document</span>
-                                      <div className="flex items-center gap-2">
-                                        <Button size="sm" variant="ghost" className="h-7 text-[10px]" onClick={() => setEditingDocId(null)}>Cancel</Button>
-                                        <Button size="sm" className="h-7 text-[10px] gap-1" onClick={() => {
-                                          try {
-                                            const data = JSON.parse(editingDocValue);
-                                            updateDoc.mutate({ connectionId, dbName: database, collectionName: collection, documentId: docId, data });
-                                            setEditingDocId(null);
-                                          } catch (e) {
-                                            toast({ title: "Invalid JSON", variant: "destructive" });
-                                          }
-                                        }} disabled={updateDoc.isPending}>
-                                          {updateDoc.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
-                                          Save
-                                        </Button>
-                                      </div>
-                                    </div>
-                                    <QueryEditor
-                                      value={editingDocValue}
-                                      onChange={(val) => setEditingDocValue(val || "")}
-                                      height="300px"
-                                      fields={allFields.map(f => ({ path: f, type: "string" }))}
-                                      mode="general"
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="group relative">
-                                    <JsonTree data={doc} />
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
                                     <Button
                                       size="sm"
-                                      variant="secondary"
-                                      className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 h-7 text-[10px] gap-1 shadow-md"
+                                      variant="ghost"
+                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
+                                      aria-label="Open full document JSON"
+                                      onClick={() => openFullDocumentJsonModal(doc)}
+                                    >
+                                      <ChevronRight className="w-3 h-3" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom">Open full document (JSON editor)</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-blue-400"
+                                      aria-label="Copy JSON"
+                                      onClick={() => handleCopyDoc(doc)}
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom">Copy document as JSON</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-emerald-400"
+                                      aria-label="Duplicate"
+                                      onClick={() => handleDuplicateDoc(doc)}
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom">Duplicate document</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className={`h-5 w-5 p-0 ${isPinned ? "text-amber-400" : "text-muted-foreground hover:text-amber-400"}`}
+                                      aria-label={isPinned ? "Unpin" : "Pin"}
+                                      onClick={() =>
+                                        setPinnedDocs((prev) => {
+                                          const n = new Set(prev);
+                                          if (n.has(docId)) n.delete(docId);
+                                          else n.add(docId);
+                                          return n;
+                                        })
+                                      }
+                                    >
+                                      <Pin className="w-3 h-3" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom">
+                                    {isPinned ? "Unpin from top" : "Pin to top of list"}
+                                  </TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-blue-400"
+                                      aria-label="Edit fields"
                                       onClick={() => {
-                                        setEditingDocId(docId);
+                                        setEditDocId(docId);
                                         const { _id, ...rest } = doc;
-                                        setEditingDocValue(JSON.stringify(rest, null, 2));
+                                        setEditJson(JSON.stringify(rest, null, 2));
+                                        setShowEditModal(true);
                                       }}
                                     >
-                                      <Code className="w-3 h-3" /> Edit JSON
+                                      <Settings className="w-3 h-3" />
                                     </Button>
-                                  </div>
-                                )}
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom">Edit document (field modal)</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+                                      aria-label="Delete document"
+                                      onClick={() => {
+                                        setDocToDelete(docId);
+                                        setShowSingleDeleteConfirm(true);
+                                      }}
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom">Delete document</TooltipContent>
+                                </Tooltip>
                               </div>
-                            )}
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                   );
                 })()}
+                {docScrollShowTop && docs.length > 0 && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className="fixed bottom-6 right-6 z-40 h-9 w-9 rounded-full shadow-lg border border-border/60 opacity-90 hover:opacity-100"
+                    onClick={scrollDocumentsToTop}
+                    title="Back to top"
+                  >
+                    <ArrowUpToLine className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
 
               {/* Pagination */}
@@ -1430,6 +2040,8 @@ export default function Explorer() {
                         <SelectItem value="20">20</SelectItem>
                         <SelectItem value="50">50</SelectItem>
                         <SelectItem value="100">100</SelectItem>
+                        <SelectItem value="200">200</SelectItem>
+                        <SelectItem value="500">500</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
@@ -1832,7 +2444,7 @@ export default function Explorer() {
                               <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                             ))}
                           </Pie>
-                          <Tooltip />
+                          <RechartsTooltip />
                           <Legend />
                         </PieChart>
                       ) : chartType === "line" ? (
@@ -1840,7 +2452,7 @@ export default function Explorer() {
                           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                           <XAxis dataKey={chartXField} tick={{ fontSize: 11 }} />
                           <YAxis tick={{ fontSize: 11 }} />
-                          <Tooltip />
+                          <RechartsTooltip />
                           <Line type="monotone" dataKey={chartYField} stroke="#10b981" strokeWidth={2} dot={false} />
                         </LineChart>
                       ) : (
@@ -1848,7 +2460,7 @@ export default function Explorer() {
                           <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                           <XAxis dataKey={chartXField} tick={{ fontSize: 11 }} />
                           <YAxis tick={{ fontSize: 11 }} />
-                          <Tooltip />
+                          <RechartsTooltip />
                           <Bar dataKey={chartYField} fill="#10b981" radius={[3, 3, 0, 0]} />
                         </BarChart>
                       )}
@@ -1915,6 +2527,21 @@ export default function Explorer() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <DocumentJsonModal
+        open={!!fullDocumentJsonModal}
+        onOpenChange={(open) => {
+          if (!open) setFullDocumentJsonModal(null);
+        }}
+        docId={fullDocumentJsonModal?.docId ?? ""}
+        draft={fullDocumentJsonModal?.draft ?? ""}
+        onDraftChange={(next) =>
+          setFullDocumentJsonModal((prev) => (prev ? { ...prev, draft: next } : prev))
+        }
+        initialJson={fullDocumentJsonModal?.initialJson ?? ""}
+        onSave={() => void handleFullDocumentJsonModalSave()}
+        isSaving={updateDoc.isPending}
+      />
 
       {/* Single Delete Confirmation */}
       <Dialog open={showSingleDeleteConfirm} onOpenChange={setShowSingleDeleteConfirm}>
@@ -2211,7 +2838,7 @@ function DashboardContent({ connectionId, database, collection, schemaData }: {
                       <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip
+                  <RechartsTooltip
                     contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px" }}
                     itemStyle={{ color: "hsl(var(--foreground))" }}
                     formatter={(value: any, name: any, props: any) => {
@@ -2240,7 +2867,7 @@ function DashboardContent({ connectionId, database, collection, schemaData }: {
                     interval={0}
                   />
                   <YAxis fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip
+                  <RechartsTooltip
                     contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px" }}
                     itemStyle={{ color: "hsl(var(--foreground))" }}
                   />
@@ -2258,7 +2885,7 @@ function DashboardContent({ connectionId, database, collection, schemaData }: {
                     interval={0}
                   />
                   <YAxis fontSize={10} tick={{ fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip
+                  <RechartsTooltip
                     contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px" }}
                     itemStyle={{ color: "hsl(var(--foreground))" }}
                   />

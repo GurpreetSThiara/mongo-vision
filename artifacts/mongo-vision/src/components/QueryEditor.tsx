@@ -18,6 +18,8 @@ interface QueryEditorProps {
   height?: string;
   className?: string;
   placeholder?: string;
+  /** Strict JSON vs mongosh / CLI (JavaScript-like) — affects language, validation, completions */
+  syntax?: "json" | "mongosh";
   /** Keyboard shortcut: Cmd/Ctrl+Enter */
   onExecute?: () => void;
   /** Keyboard shortcut: Cmd/Ctrl+Shift+E */
@@ -140,6 +142,17 @@ const OPERATORS: OperatorDef[] = [
 // Map of known operators for fast validation lookup
 const KNOWN_OPERATORS = new Set(OPERATORS.map(o => o.label));
 
+const MONGOSH_HELPERS: { label: string; doc: string; insert: string }[] = [
+  { label: "ObjectId", doc: "BSON ObjectId from 24-char hex string", insert: 'ObjectId("${1:hex}")' },
+  { label: "ISODate", doc: "UTC date from ISO-8601 string", insert: 'ISODate("${1:2024-01-01}")' },
+  { label: "new Date", doc: "JavaScript Date", insert: 'new Date("${1:2024-01-01}")' },
+  { label: "NumberLong", doc: "64-bit integer", insert: 'NumberLong("${1:0}")' },
+  { label: "NumberInt", doc: "32-bit integer", insert: 'NumberInt("${1:0}")' },
+  { label: "NumberDecimal", doc: "High-precision decimal", insert: 'NumberDecimal("${1:0.0}")' },
+  { label: "UUID", doc: "BSON UUID", insert: 'UUID("${1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}")' },
+  { label: "db...find", doc: "Extract filter from shell find()", insert: 'db.collection.find({ ${1} })' },
+];
+
 // ─── Utility Functions ───────────────────────────────────────────────────────
 
 function normalizeFields(fields: (string | FieldInfo)[]): FieldInfo[] {
@@ -161,8 +174,17 @@ function getOperatorKindIcon(kind: OperatorDef["kind"]): string {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function QueryEditor({
-  value, onChange, fields = [], height = "100px", className,
-  placeholder, onExecute, onExplain, onSave, mode = "general",
+  value,
+  onChange,
+  fields = [],
+  height = "100px",
+  className,
+  placeholder,
+  syntax = "json",
+  onExecute,
+  onExplain,
+  onSave,
+  mode = "general",
 }: QueryEditorProps) {
   const monaco = useMonaco();
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -204,9 +226,75 @@ export function QueryEditor({
     }
   }, [onExecute, onExplain, onSave]);
 
-  // ── Completion Provider ─────────────────────────────────────────────────
+  // ── Completion Provider (mongosh / JavaScript) ──────────────────────────
   useEffect(() => {
-    if (!monaco) return;
+    if (!monaco || syntax !== "mongosh") return;
+
+    const disposables: Array<{ dispose: () => void }> = [];
+
+    disposables.push(
+      monaco.languages.registerCompletionItemProvider("javascript", {
+        provideCompletionItems: (model, position) => {
+          const word = model.getWordUntilPosition(position);
+          const range = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn,
+          };
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const out: any[] = [];
+
+          MONGOSH_HELPERS.forEach((h, idx) => {
+            out.push({
+              label: { label: h.label, description: "mongosh" },
+              kind: monaco.languages.CompletionItemKind.Function,
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              insertText: h.insert,
+              range,
+              documentation: { value: h.doc, isTrusted: true },
+              sortText: "0" + String(idx).padStart(3, "0"),
+            });
+          });
+
+          if (mode === "filter" || mode === "general") {
+            OPERATORS.filter((op) => op.kind === "query").forEach((op, idx) => {
+              out.push({
+                label: { label: op.label, description: "query op" },
+                kind: monaco.languages.CompletionItemKind.Keyword,
+                insertText: `${op.label}: `,
+                range,
+                documentation: { value: op.doc, isTrusted: true },
+                sortText: "1" + String(idx).padStart(4, "0"),
+              });
+            });
+          }
+
+          normalizedFields.forEach((field, idx) => {
+            out.push({
+              label: { label: field.path, description: field.type ? `field (${field.type})` : "field" },
+              kind: monaco.languages.CompletionItemKind.Field,
+              insertText: field.path,
+              range,
+              sortText: "2" + String(idx).padStart(4, "0"),
+            });
+          });
+
+          return { suggestions: out };
+        },
+        triggerCharacters: ["$", "(", ".", '"', "'", "`"],
+      }),
+    );
+
+    return () => {
+      disposables.forEach(d => d.dispose());
+    };
+  }, [monaco, syntax, normalizedFields, mode]);
+
+  // ── Completion Provider (JSON) ────────────────────────────────────────────
+  useEffect(() => {
+    if (!monaco || syntax !== "json") return;
 
     if (completionProviderRef.current) completionProviderRef.current.dispose();
 
@@ -314,12 +402,14 @@ export function QueryEditor({
       triggerCharacters: ["$", "\"", ".", ":"],
     });
 
-    return () => { if (completionProviderRef.current) completionProviderRef.current.dispose(); };
-  }, [monaco, normalizedFields, mode]);
+    return () => {
+      if (completionProviderRef.current) completionProviderRef.current.dispose();
+    };
+  }, [monaco, normalizedFields, mode, syntax]);
 
   // ── Diagnostics Provider (Real-time Validation) ─────────────────────────
   useEffect(() => {
-    if (!monaco) return;
+    if (!monaco || syntax !== "json") return;
 
     // create a unique owner for our diagnostics
     const diagnosticOwner = "mongo-query-validator";
@@ -417,7 +507,7 @@ export function QueryEditor({
     return () => {
       if (diagnosticProviderRef.current) clearInterval(diagnosticProviderRef.current);
     };
-  }, [monaco]);
+  }, [monaco, syntax]);
 
   return (
     <div className={`relative border border-input rounded-md overflow-hidden ${className || ""}`}>
@@ -427,8 +517,9 @@ export function QueryEditor({
         </div>
       )}
       <Editor
+        key={`${syntax}-${mode}`}
         height={height}
-        defaultLanguage="json"
+        language={syntax === "mongosh" ? "javascript" : "json"}
         theme="vs-dark"
         value={value}
         onChange={onChange}
@@ -439,11 +530,11 @@ export function QueryEditor({
           fontFamily: "JetBrains Mono, Menlo, Monaco, 'Courier New', monospace",
           scrollBeyondLastLine: false,
           automaticLayout: true,
-          lineNumbers: "off",
+          lineNumbers: syntax === "mongosh" ? "on" : "off",
           glyphMargin: false,
           folding: true,
           lineDecorationsWidth: 0,
-          lineNumbersMinChars: 0,
+          lineNumbersMinChars: syntax === "mongosh" ? 3 : 0,
           padding: { top: 8, bottom: 8 },
           suggestOnTriggerCharacters: true,
           tabSize: 2,
@@ -458,11 +549,11 @@ export function QueryEditor({
           quickSuggestions: {
             strings: true,
             other: true,
-            comments: false,
+            comments: syntax === "mongosh",
           },
           scrollbar: {
-            vertical: "hidden",
-            horizontal: "hidden",
+            vertical: syntax === "mongosh" ? "auto" : "hidden",
+            horizontal: syntax === "mongosh" ? "auto" : "hidden",
           },
           overviewRulerLanes: 0,
           renderLineHighlight: "none",
