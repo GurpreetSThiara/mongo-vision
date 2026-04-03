@@ -169,3 +169,16 @@
     @apply bg-background text-foreground font-sans antialiased;
   }
 }
+
+@layer utilities {
+  /* Scroll still works; bars hidden (spreadsheet cells, panes). */
+  .scrollbar-invisible {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-invisible::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}

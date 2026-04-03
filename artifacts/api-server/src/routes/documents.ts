@@ -1,13 +1,18 @@
 import { Router } from "express";
-import { ObjectId } from "mongodb";
+import { BSON, ObjectId } from "mongodb";
 import { getSession } from "../lib/mongodb.js";
 
 const router = Router();
 
+/** Parse query-string JSON and interpret Extended JSON ($oid, $date, …) as BSON types. */
 function parseJson(str: string | undefined): Record<string, unknown> {
   if (!str || str.trim() === "") return {};
   try {
-    return JSON.parse(str);
+    const parsed: unknown = JSON.parse(str);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Expected a JSON object");
+    }
+    return BSON.EJSON.deserialize(parsed) as Record<string, unknown>;
   } catch (err) {
     throw new Error(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
