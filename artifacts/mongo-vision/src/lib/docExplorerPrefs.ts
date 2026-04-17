@@ -10,6 +10,8 @@ export interface DocExplorerPrefs {
   docQueryLive: boolean;
   /** Taller filter/sort editors in code mode */
   docCodeEditorsExpanded: boolean;
+  /** Whether the query editor/builder section is visible */
+  docQueryVisible: boolean;
 }
 
 const DEFAULTS: DocExplorerPrefs = {
@@ -17,6 +19,7 @@ const DEFAULTS: DocExplorerPrefs = {
   docCodeFormat: "mongosh",
   docQueryLive: false,
   docCodeEditorsExpanded: false,
+  docQueryVisible: true,
 };
 
 function readJson<T>(raw: string | null, fallback: T): T {
@@ -40,6 +43,10 @@ export function loadDocExplorerPrefs(): DocExplorerPrefs {
       typeof parsed.docCodeEditorsExpanded === "boolean"
         ? parsed.docCodeEditorsExpanded
         : DEFAULTS.docCodeEditorsExpanded,
+    docQueryVisible:
+      typeof parsed.docQueryVisible === "boolean"
+        ? parsed.docQueryVisible
+        : DEFAULTS.docQueryVisible,
   };
 }
 

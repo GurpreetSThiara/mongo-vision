@@ -47,7 +47,7 @@ import {
   AlertCircle, CheckCircle, XCircle, Eye, Clock, MousePointerClick,
   Copy, Columns, LayoutGrid, Timer, Pin,
   LayoutList, FileText, Diff, X, Shield, ChevronsDownUp, Grid3x3,
-  ArrowUpToLine, ListTree,
+  ArrowUpToLine, ListTree, ChevronUp,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
@@ -276,10 +276,13 @@ export default function Explorer() {
   const [docCodeEditorsExpanded, setDocCodeEditorsExpanded] = useState(
     () => loadDocExplorerPrefs().docCodeEditorsExpanded,
   );
+  const [docQueryVisible, setDocQueryVisible] = useState(
+    () => loadDocExplorerPrefs().docQueryVisible,
+  );
   /** When docQueryLive is false, the list uses these until Apply. */
   const [appliedFilterStr, setAppliedFilterStr] = useState("{}");
   const [appliedSortStr, setAppliedSortStr] = useState("{}");
-  const [viewMode, setViewMode] = useState<"table" | "spreadsheet" | "json" | "card">("table");
+  const [viewMode, setViewMode] = useState<"spreadsheet" | "json" | "card">("spreadsheet");
   const [spreadsheetLayout, setSpreadsheetLayout] = useState<SpreadsheetLayoutPrefs>(() =>
     loadSpreadsheetPrefs(""),
   );
@@ -306,8 +309,9 @@ export default function Explorer() {
       docCodeFormat,
       docQueryLive,
       docCodeEditorsExpanded,
+      docQueryVisible,
     });
-  }, [docQueryMode, docCodeFormat, docQueryLive, docCodeEditorsExpanded]);
+  }, [docQueryMode, docCodeFormat, docQueryLive, docCodeEditorsExpanded, docQueryVisible]);
 
   useEffect(() => {
     if (!spSheetKey) return;
@@ -1253,6 +1257,16 @@ export default function Explorer() {
                     variant="ghost"
                     size="sm"
                     className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={() => setDocQueryVisible(!docQueryVisible)}
+                    title={docQueryVisible ? "Collapse Query Section" : "Expand Query Section"}
+                  >
+                    {docQueryVisible ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                    {docQueryVisible ? "Collapse" : "Expand"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
                     onClick={handleResetAll}
                   >
                     <RefreshCw className="w-2.5 h-2.5" /> Reset All
@@ -1266,7 +1280,7 @@ export default function Explorer() {
                 </div>
 
                 {/* Visual query builder */}
-                {docQueryMode === "visual" && (
+                {docQueryVisible && docQueryMode === "visual" && (
                   <VisualQueryBuilder
                     filterValue={filterStr}
                     sortValue={sortStr}
@@ -1288,7 +1302,7 @@ export default function Explorer() {
                 )}
 
                 {/* Code query editors */}
-                {docQueryMode === "code" && (
+                {docQueryVisible && docQueryMode === "code" && (
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[9px] text-muted-foreground uppercase tracking-wider shrink-0">Format</span>
@@ -1422,12 +1436,6 @@ export default function Explorer() {
               <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/50 bg-muted/20 shrink-0 flex-wrap">
                 {/* View mode */}
                 <div className="flex items-center rounded-md border border-border/40 overflow-hidden">
-                  <button
-                    className={`px-1.5 py-0.5 transition-colors ${viewMode === "table" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}
-                    onClick={() => setViewMode("table")} title="Table view"
-                  >
-                    <Table className="w-3 h-3" />
-                  </button>
                   <button
                     className={`px-1.5 py-0.5 transition-colors ${viewMode === "json" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}
                     onClick={() => setViewMode("json")} title="JSON view"
@@ -1714,282 +1722,59 @@ export default function Explorer() {
                     );
                   }
 
-                  // ─── Spreadsheet View ───
-                  if (viewMode === "spreadsheet") {
-                    return (
-                      <DocumentsSpreadsheetView
-                        docs={sortedDocs}
-                        visibleFields={visibleFields}
-                        layout={spreadsheetLayout}
-                        onLayoutChange={setSpreadsheetLayout}
-                        handlers={{
-                          onOpenFullDocument: openFullDocumentJsonModal,
-                          onCopy: handleCopyDoc,
-                          onDuplicate: handleDuplicateDoc,
-                          onPin: (docId) =>
-                            setPinnedDocs((prev) => {
-                              const n = new Set(prev);
-                              if (n.has(docId)) n.delete(docId);
-                              else n.add(docId);
-                              return n;
-                            }),
-                          isPinned: (id) => pinnedDocs.has(id),
-                          onEdit: (docId, doc) => {
-                            setEditDocId(docId);
-                            const { _id: _oid, ...rest } = doc;
-                            setEditJson(JSON.stringify(rest, null, 2));
-                            setShowEditModal(true);
-                          },
-                          onDelete: (docId) => {
-                            setDocToDelete(docId);
-                            setShowSingleDeleteConfirm(true);
-                          },
-                          compareMode,
-                          compareDocs,
-                          onToggleCompare: (docId, checked) =>
-                            setCompareDocs((prev) => {
-                              if (!checked) return prev.filter((x) => x !== docId);
-                              if (prev.includes(docId)) return prev;
-                              if (prev.length >= 2) return prev;
-                              return [...prev, docId];
-                            }),
-                          selectedDocs,
-                          onToggleSelect: (docId, checked) =>
-                            setSelectedDocs((prev) => {
-                              const n = new Set(prev);
-                              if (checked) n.add(docId);
-                              else n.delete(docId);
-                              return n;
-                            }),
-                          onSelectAll: (checked, ids) =>
-                            setSelectedDocs(checked ? new Set(ids) : new Set()),
-                          inlineEditCell,
-                          onInlineEdit: handleInlineEdit,
-                          setInlineEditCell,
-                        }}
-                      />
-                    );
-                  }
-
-                  // ─── Table View (default) ───
+                  // ─── Spreadsheet View (default) ───
                   return (
-                    <div className="divide-y divide-border">
-                      {/* Table header */}
-                      <div className="flex items-center bg-card px-4 py-2 text-xs font-medium text-muted-foreground sticky top-0 z-10">
-                        <div className="w-8 shrink-0">
-                          <input
-                            type="checkbox"
-                            className="rounded"
-                            checked={selectedDocs.size === sortedDocs.length && sortedDocs.length > 0}
-                            onChange={e => setSelectedDocs(e.target.checked ? new Set(sortedDocs.map(d => String(d._id))) : new Set())}
-                          />
-                        </div>
-                        {visibleFields.map(f => (
-                          <div key={f} className="flex-1 min-w-0 px-2 truncate font-mono">{f}</div>
-                        ))}
-                        <div className="w-28 shrink-0 text-right">Actions</div>
-                      </div>
-
-                      {sortedDocs.map((doc) => {
-                        const docId = String(doc._id || "");
-                        const isPinned = pinnedDocs.has(docId);
-                        return (
-                          <div key={docId} data-testid={`row-doc-${docId}`} className={isPinned ? "border-l-2 border-l-amber-500 bg-amber-500/[0.02]" : ""}>
-                            <div className="flex items-center px-4 py-2 hover:bg-muted/20 transition-colors">
-                              <div className="w-8 shrink-0">
-                                {compareMode ? (
-                                  <input
-                                    type="checkbox"
-                                    className="rounded accent-violet-500"
-                                    checked={compareDocs.includes(docId)}
-                                    disabled={compareDocs.length >= 2 && !compareDocs.includes(docId)}
-                                    onChange={e => {
-                                      const on = e.target.checked;
-                                      setCompareDocs(prev => {
-                                        if (!on) return prev.filter(id => id !== docId);
-                                        if (prev.includes(docId)) return prev;
-                                        if (prev.length >= 2) return prev;
-                                        return [...prev, docId];
-                                      });
-                                    }}
-                                  />
-                                ) : (
-                                  <input
-                                    type="checkbox"
-                                    className="rounded"
-                                    checked={selectedDocs.has(docId)}
-                                    onChange={e => {
-                                      setSelectedDocs(prev => {
-                                        const next = new Set(prev);
-                                        if (e.target.checked) next.add(docId); else next.delete(docId);
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                )}
-                              </div>
-                              {visibleFields.map(f => (
-                                <div key={f} className="flex-1 min-w-0 px-2">
-                                  {inlineEditCell?.docId === docId && inlineEditCell?.field === f ? (
-                                    <input
-                                      autoFocus
-                                      defaultValue={inlineEditCell.value}
-                                      className="text-xs font-mono w-full bg-muted/50 border border-primary rounded px-1 py-0.5 outline-none"
-                                      onBlur={e =>
-                                        handleInlineEdit(docId, f, e.target.value, inlineEditCell.value)
-                                      }
-                                      onKeyDown={e => {
-                                        if (e.key === "Enter")
-                                          handleInlineEdit(
-                                            docId,
-                                            f,
-                                            (e.target as HTMLInputElement).value,
-                                            inlineEditCell.value,
-                                          );
-                                        if (e.key === "Escape") setInlineEditCell(null);
-                                      }}
-                                    />
-                                  ) : (
-                                    f === "_id" ? (
-                                      <button
-                                        type="button"
-                                        className="text-xs font-mono truncate block max-w-[120px] text-left cursor-pointer hover:text-primary transition-colors"
-                                        title="Click: copy _id · Double-click disabled"
-                                        onClick={() => copyDocIdToast(String(doc[f] ?? docId))}
-                                      >
-                                        {String(doc[f] ?? docId).slice(0, 40)}
-                                      </button>
-                                    ) : (
-                                      <span
-                                        className="text-xs font-mono truncate block max-w-[120px] cursor-pointer hover:text-primary transition-colors"
-                                        onDoubleClick={() => {
-                                          const raw = doc[f];
-                                          setInlineEditCell({ docId, field: f, value: typeof raw === "object" ? JSON.stringify(raw) : String(raw ?? "") });
-                                        }}
-                                        title="Double-click to edit"
-                                      >
-                                        {doc[f] === null ? (
-                                          <span className="text-muted-foreground">null</span>
-                                        ) : doc[f] === undefined ? (
-                                          <span className="text-muted-foreground/50">—</span>
-                                        ) : typeof doc[f] === "object" ? (
-                                          <span className="text-blue-400">{"{…}"}</span>
-                                        ) : (
-                                          <span>{String(doc[f]).slice(0, 40)}</span>
-                                        )}
-                                      </span>
-                                    )
-                                  )}
-                                </div>
-                              ))}
-                              <div className="w-28 shrink-0 flex items-center justify-end gap-0.5">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
-                                      aria-label="Open full document JSON"
-                                      onClick={() => openFullDocumentJsonModal(doc)}
-                                    >
-                                      <ChevronRight className="w-3 h-3" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom">Open full document (JSON editor)</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-blue-400"
-                                      aria-label="Copy JSON"
-                                      onClick={() => handleCopyDoc(doc)}
-                                    >
-                                      <Copy className="w-3 h-3" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom">Copy document as JSON</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-emerald-400"
-                                      aria-label="Duplicate"
-                                      onClick={() => handleDuplicateDoc(doc)}
-                                    >
-                                      <Plus className="w-3 h-3" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom">Duplicate document</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className={`h-5 w-5 p-0 ${isPinned ? "text-amber-400" : "text-muted-foreground hover:text-amber-400"}`}
-                                      aria-label={isPinned ? "Unpin" : "Pin"}
-                                      onClick={() =>
-                                        setPinnedDocs((prev) => {
-                                          const n = new Set(prev);
-                                          if (n.has(docId)) n.delete(docId);
-                                          else n.add(docId);
-                                          return n;
-                                        })
-                                      }
-                                    >
-                                      <Pin className="w-3 h-3" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom">
-                                    {isPinned ? "Unpin from top" : "Pin to top of list"}
-                                  </TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-blue-400"
-                                      aria-label="Edit fields"
-                                      onClick={() => {
-                                        setEditDocId(docId);
-                                        const { _id, ...rest } = doc;
-                                        setEditJson(JSON.stringify(rest, null, 2));
-                                        setShowEditModal(true);
-                                      }}
-                                    >
-                                      <Settings className="w-3 h-3" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom">Edit document (field modal)</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
-                                      aria-label="Delete document"
-                                      onClick={() => {
-                                        setDocToDelete(docId);
-                                        setShowSingleDeleteConfirm(true);
-                                      }}
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom">Delete document</TooltipContent>
-                                </Tooltip>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <DocumentsSpreadsheetView
+                      docs={sortedDocs}
+                      visibleFields={visibleFields}
+                      layout={spreadsheetLayout}
+                      onLayoutChange={setSpreadsheetLayout}
+                      handlers={{
+                        onOpenFullDocument: openFullDocumentJsonModal,
+                        onCopy: handleCopyDoc,
+                        onDuplicate: handleDuplicateDoc,
+                        onPin: (docId) =>
+                          setPinnedDocs((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(docId)) n.delete(docId);
+                            else n.add(docId);
+                            return n;
+                          }),
+                        isPinned: (id) => pinnedDocs.has(id),
+                        onEdit: (docId, doc) => {
+                          setEditDocId(docId);
+                          const { _id: _oid, ...rest } = doc;
+                          setEditJson(JSON.stringify(rest, null, 2));
+                          setShowEditModal(true);
+                        },
+                        onDelete: (docId) => {
+                          setDocToDelete(docId);
+                          setShowSingleDeleteConfirm(true);
+                        },
+                        compareMode,
+                        compareDocs,
+                        onToggleCompare: (docId, checked) =>
+                          setCompareDocs((prev) => {
+                            if (!checked) return prev.filter((x) => x !== docId);
+                            if (prev.includes(docId)) return prev;
+                            if (prev.length >= 2) return prev;
+                            return [...prev, docId];
+                          }),
+                        selectedDocs,
+                        onToggleSelect: (docId, checked) =>
+                          setSelectedDocs((prev) => {
+                            const n = new Set(prev);
+                            if (checked) n.add(docId);
+                            else n.delete(docId);
+                            return n;
+                          }),
+                        onSelectAll: (checked, ids) =>
+                          setSelectedDocs(checked ? new Set(ids) : new Set()),
+                        inlineEditCell,
+                        onInlineEdit: handleInlineEdit,
+                        setInlineEditCell,
+                      }}
+                    />
                   );
                 })()}
                 {docScrollShowTop && docs.length > 0 && (
