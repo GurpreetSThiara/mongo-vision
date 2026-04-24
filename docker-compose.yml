@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=production
+      - PORT=3005
+      - SESSION_SECRET=change-this-in-production
+    restart: always
+
+# Note: This is a single-container deployment since MongoDB is external 
+# and PostgreSQL was removed as per the latest instructions.
