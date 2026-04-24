@@ -1534,7 +1534,7 @@ export default function Explorer() {
                 >
                   <ListTree className="w-2.5 h-2.5" /> Copy IDs
                 </Button>
-                {(viewMode === "table" || viewMode === "spreadsheet") && !compareMode && sortedVisibleDocs.length > 0 && (
+                {viewMode === "spreadsheet" && !compareMode && sortedVisibleDocs.length > 0 && (
                   <Button
                     type="button"
                     variant="ghost"
