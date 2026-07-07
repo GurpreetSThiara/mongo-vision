@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
-    "build": "tsc -b ../../lib/api-zod && node ./build.mjs",
+    "build": "pnpm --filter @workspace/mongo-vision build && tsc -b ../../lib/api-zod && node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

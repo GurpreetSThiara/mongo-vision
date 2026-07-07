@@ -36,10 +36,25 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-let publicPath = path.resolve(__dirname, "../../mongo-vision/dist/public");
-if (!fs.existsSync(publicPath) || !fs.existsSync(path.join(publicPath, "index.html"))) {
+
+const candidatePaths = [
+  path.resolve(__dirname, "../../mongo-vision/dist/public"),
+  path.resolve(__dirname, "public"),
+  path.resolve(__dirname, "../public"),
+  path.resolve(__dirname, "../dist/public"),
+];
+
+let publicPath = "";
+for (const p of candidatePaths) {
+  if (fs.existsSync(p) && fs.existsSync(path.join(p, "index.html"))) {
+    publicPath = p;
+    break;
+  }
+}
+if (!publicPath) {
   publicPath = path.resolve(__dirname, "public");
 }
+
 app.use(express.static(publicPath));
 
 // Catch-all route to serve the SPA index.html
