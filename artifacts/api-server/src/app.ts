@@ -33,9 +33,13 @@ app.use("/api", router);
 
 // Serve static files from the 'public' directory if it exists
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const publicPath = path.resolve(__dirname, "public");
+let publicPath = path.resolve(__dirname, "../../mongo-vision/dist/public");
+if (!fs.existsSync(publicPath) || !fs.existsSync(path.join(publicPath, "index.html"))) {
+  publicPath = path.resolve(__dirname, "public");
+}
 app.use(express.static(publicPath));
 
 // Catch-all route to serve the SPA index.html
