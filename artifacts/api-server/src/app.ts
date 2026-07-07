@@ -39,7 +39,7 @@ const publicPath = path.resolve(__dirname, "public");
 app.use(express.static(publicPath));
 
 // Catch-all route to serve the SPA index.html
-app.get("*", (req, res, next) => {
+app.get("*any", (req, res, next) => {
   if (req.url.startsWith("/api")) return next();
   res.sendFile(path.join(publicPath, "index.html"), (err) => {
     if (err) {
