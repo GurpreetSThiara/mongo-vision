@@ -322,18 +322,25 @@ export default function Explorer() {
     });
   }, [docQueryMode, docCodeFormat, docQueryLive, docCodeEditorsExpanded, docQueryVisible]);
 
+  const lastSavedLayoutKey = useRef("");
   useEffect(() => {
     if (!spSheetKey) return;
-    setSpreadsheetLayout(loadSpreadsheetPrefs(spSheetKey));
+    const loaded = loadSpreadsheetPrefs(spSheetKey);
+    setSpreadsheetLayout(loaded);
+    lastSavedLayoutKey.current = JSON.stringify(loaded);
   }, [spSheetKey]);
 
   const spreadsheetSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     if (!spSheetKey) return;
-    if (spreadsheetSaveTimer.current) clearTimeout(spreadsheetSaveTimer.current);
-    spreadsheetSaveTimer.current = setTimeout(() => {
-      saveSpreadsheetPrefs(spSheetKey, spreadsheetLayout);
-    }, 400);
+    const layoutStr = JSON.stringify(spreadsheetLayout);
+    if (layoutStr !== lastSavedLayoutKey.current) {
+      if (spreadsheetSaveTimer.current) clearTimeout(spreadsheetSaveTimer.current);
+      spreadsheetSaveTimer.current = setTimeout(() => {
+        saveSpreadsheetPrefs(spSheetKey, spreadsheetLayout);
+        lastSavedLayoutKey.current = layoutStr;
+      }, 400);
+    }
     return () => {
       if (spreadsheetSaveTimer.current) clearTimeout(spreadsheetSaveTimer.current);
     };
@@ -1021,6 +1028,18 @@ export default function Explorer() {
       [`${database}.${collection}`]: fields
     }));
   }, [database, collection]);
+
+  const fieldTypesMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (schemaData?.fields) {
+      schemaData.fields.forEach((f: any) => {
+        if (f.path && f.types?.[0]?.type) {
+          map[f.path] = f.types[0].type;
+        }
+      });
+    }
+    return map;
+  }, [schemaData]);
 
   const typeColor: Record<string, string> = {
     string: "text-emerald-400", number: "text-amber-400", boolean: "text-violet-400",
@@ -1837,13 +1856,13 @@ export default function Explorer() {
                     );
                   }
 
-                  // ─── Spreadsheet View (default) ───
                   return (
                     <DocumentsSpreadsheetView
                       docs={sortedDocs}
                       visibleFields={visibleFields}
                       layout={spreadsheetLayout}
                       onLayoutChange={setSpreadsheetLayout}
+                      fieldTypes={fieldTypesMap}
                       handlers={{
                         onOpenFullDocument: openFullDocumentJsonModal,
                         onCopy: handleCopyDoc,

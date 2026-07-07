@@ -8,6 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  ChevronDown,
+  ChevronUp,
   Copy,
   Loader2,
   Pencil,
@@ -16,6 +18,7 @@ import {
   Snowflake,
   Trash2,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import type { SpreadsheetLayoutPrefs } from "@/lib/docExplorerPrefs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -71,6 +74,7 @@ interface DocumentsSpreadsheetViewProps {
   layout: SpreadsheetLayoutPrefs;
   onLayoutChange: (next: SpreadsheetLayoutPrefs) => void;
   handlers: SpreadsheetHandlers;
+  fieldTypes?: Record<string, string>;
 }
 
 const MIN_COL = 80;
@@ -86,6 +90,7 @@ export function DocumentsSpreadsheetView({
   layout,
   onLayoutChange,
   handlers,
+  fieldTypes,
 }: DocumentsSpreadsheetViewProps) {
   const colResizeRef = useRef<{ field: string; startX: number; startW: number } | null>(null);
   const rowResizeRef = useRef<{ docId: string; startY: number; startH: number } | null>(null);
@@ -93,6 +98,17 @@ export function DocumentsSpreadsheetView({
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [resizingRow, setResizingRow] = useState<string | null>(null);
   const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colIndex: number } | null>(null);
+  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+
+  const toggleCellExpand = useCallback((docId: string, field: string) => {
+    setExpandedCells((prev) => {
+      const n = new Set(prev);
+      const key = `${docId}-${field}`;
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (handlers.inlineEditCell) {
@@ -308,8 +324,38 @@ export function DocumentsSpreadsheetView({
 
   const headerH = layout.rowHeight + 8;
 
+  const getTypeBadge = (field: string) => {
+    if (field === "_id") return { label: "id", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" };
+    const type = fieldTypes?.[field]?.toLowerCase() || "";
+    switch (type) {
+      case "string":
+        return { label: "abc", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" };
+      case "number":
+      case "double":
+      case "int":
+      case "long":
+      case "decimal":
+        return { label: "#", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" };
+      case "boolean":
+        return { label: "t/f", color: "bg-violet-500/10 text-violet-400 border-violet-500/20" };
+      case "object":
+        return { label: "{}", color: "bg-blue-500/10 text-blue-400 border-blue-500/20" };
+      case "array":
+        return { label: "[]", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" };
+      case "objectid":
+        return { label: "oid", color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" };
+      case "date":
+        return { label: "date", color: "bg-pink-500/10 text-pink-400 border-pink-500/20" };
+      case "null":
+        return { label: "null", color: "bg-rose-500/10 text-rose-400 border-rose-500/20" };
+      default:
+        return null;
+    }
+  };
+
   const renderColumnHeader = (f: string) => {
     const isFrozen = frozenSet.has(f);
+    const b = getTypeBadge(f);
     return (
       <div
         key={f}
@@ -353,7 +399,14 @@ export function DocumentsSpreadsheetView({
             {isFrozen ? "Unfreeze column" : "Freeze column (stays visible when scrolling)"}
           </TooltipContent>
         </Tooltip>
-        <span className="truncate flex-1 min-w-0">{f}</span>
+        <span className="truncate flex-1 min-w-0 flex items-center gap-1.5">
+          <span className="truncate">{f}</span>
+          {b && (
+            <span className={`text-[8px] font-mono px-1 py-0.2 rounded border uppercase font-bold tracking-tight shrink-0 scale-90 ${b.color}`}>
+              {b.label}
+            </span>
+          )}
+        </span>
         <button
           type="button"
           className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 ${
@@ -362,6 +415,37 @@ export function DocumentsSpreadsheetView({
           aria-label={`Resize ${f}`}
           onMouseDown={(e) => startColResize(f, e)}
         />
+      </div>
+    );
+  };
+
+  const renderInlineTree = (val: unknown): React.ReactNode => {
+    if (val === null) return <span className="text-muted-foreground font-bold">null</span>;
+    if (val === undefined) return <span className="text-muted-foreground/50">undefined</span>;
+    if (typeof val !== "object" || val instanceof Date) {
+      if (typeof val === "string") return <span className="text-emerald-400 font-medium">"{val}"</span>;
+      if (typeof val === "number") return <span className="text-amber-400 font-medium">{val}</span>;
+      if (typeof val === "boolean") return <span className="text-violet-500 font-medium">{String(val)}</span>;
+      return <span>{String(val)}</span>;
+    }
+
+    const isArr = Array.isArray(val);
+    const entries = isArr
+      ? (val as unknown[]).map((v, i) => [String(i), v] as const)
+      : Object.entries(val as Record<string, unknown>);
+
+    if (entries.length === 0) {
+      return <span className="text-muted-foreground font-semibold">{isArr ? "[]" : "{}"}</span>;
+    }
+
+    return (
+      <div className="font-mono text-[10px] pl-2 border-l border-border/30 my-0.5 space-y-0.5 select-text">
+        {entries.map(([key, subVal]) => (
+          <div key={key} className="flex items-start gap-1 flex-wrap">
+            <span className="text-muted-foreground/80 shrink-0">{key}:</span>
+            {renderInlineTree(subVal)}
+          </div>
+        ))}
       </div>
     );
   };
@@ -379,18 +463,24 @@ export function DocumentsSpreadsheetView({
     const prevVal = handlers.inlineEditCell?.value ?? "";
     const isFocused = focusedCell?.rowIndex === rowIndex && focusedCell?.colIndex === colIndex;
     const isSelected = handlers.selectedDocs.has(docId);
+    const isColl = raw !== null && typeof raw === "object" && !(raw instanceof Date);
+    const cellKey = `${docId}-${f}`;
+    const isExpanded = expandedCells.has(cellKey);
 
     return (
       <div
         key={`${docId}-${f}`}
         className={`shrink-0 px-1 py-0.5 font-mono border-r border-border/40 flex min-h-0 items-stretch ${
           isSelected ? "bg-primary/[0.04] dark:bg-primary/[0.08]" : "bg-card/30"
-        }`}
+        } ${isFocused ? "ring-2 ring-primary bg-primary/10 border-primary" : ""}`}
         style={{
           width: colWidth(f),
           minWidth: colWidth(f),
           height: layout.rowHeight,
           maxHeight: layout.rowHeight,
+        }}
+        onClick={() => {
+          setFocusedCell({ rowIndex, colIndex });
         }}
       >
         {handlers.inlineEditCell?.docId === docId && handlers.inlineEditCell?.field === f ? (
@@ -416,21 +506,79 @@ export function DocumentsSpreadsheetView({
             }}
             spellCheck={false}
           />
+        ) : isColl ? (
+          isExpanded ? (
+            <div className="flex flex-col gap-1 w-full h-full overflow-y-auto pr-1 scrollbar-invisible select-none">
+              <div className="flex items-center justify-between shrink-0">
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer bg-primary/10 text-primary hover:bg-primary/20 border-primary/20 gap-1 text-[9px] h-4 py-0 px-1 font-mono shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCellExpand(docId, f);
+                  }}
+                >
+                  <span>{Array.isArray(raw) ? "Array" : "Object"}</span>
+                  <ChevronUp className="w-2.5 h-2.5" />
+                </Badge>
+                <button
+                  type="button"
+                  className="text-[9px] text-muted-foreground/70 hover:text-foreground hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    scheduleCellModal(docId, f, raw);
+                  }}
+                >
+                  Modal
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto min-h-0">
+                {renderInlineTree(raw)}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-start w-full h-full min-h-0 select-none">
+              {Array.isArray(raw) ? (
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border-orange-500/20 gap-1.5 text-[10px] h-5 py-0 px-2 font-mono shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCellExpand(docId, f);
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    scheduleCellModal(docId, f, raw);
+                  }}
+                >
+                  <span>[{raw.length}] Array</span>
+                  <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20 gap-1.5 text-[10px] h-5 py-0 px-2 font-mono shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCellExpand(docId, f);
+                  }}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    scheduleCellModal(docId, f, raw);
+                  }}
+                >
+                  <span>{'{' + Object.keys(raw).length + '}'} Fields</span>
+                  <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+                </Badge>
+              )}
+            </div>
+          )
         ) : (
           <button
             type="button"
-            className={`text-left w-full min-h-0 min-w-0 overflow-auto text-[11px] leading-snug whitespace-pre-wrap break-all text-foreground rounded px-0.5 py-0.5 border border-transparent transition-colors scrollbar-invisible ${
-              isCollectionLike(raw)
-                ? "cursor-pointer hover:bg-muted/40 hover:border-border/50"
-                : "cursor-default hover:bg-muted/20"
-            } ${isFocused ? "ring-2 ring-primary bg-primary/10 border-primary" : ""}`}
-            title={
-              isCollectionLike(raw)
-                ? "Click: edit in modal · Double-click: inline edit · scroll inside cell (no bar)"
-                : "Double-click: inline edit · scroll inside cell (no bar)"
-            }
+            className="text-left w-full min-h-0 min-w-0 overflow-auto text-[11px] leading-snug whitespace-pre-wrap break-all text-foreground rounded px-0.5 py-0.5 border border-transparent transition-colors scrollbar-invisible cursor-default hover:bg-muted/20"
+            title="Double-click: inline edit · scroll inside cell (no bar)"
             onClick={() => {
-              setFocusedCell({ rowIndex, colIndex });
               scheduleCellModal(docId, f, raw);
             }}
             onDoubleClick={(e) => {
