@@ -25,6 +25,8 @@ export interface DocumentsJsonViewProps {
   compareMode?: boolean;
   compareDocs?: string[];
   onToggleCompare?: (docId: string, checked: boolean) => void;
+  selectedDocs?: Set<string>;
+  onToggleSelect?: (docId: string, checked: boolean) => void;
 }
 
 function escapeRegExp(s: string): string {
@@ -345,6 +347,8 @@ function DocumentJsonCard({
   compareDocs,
   onToggleCompare,
   onCopyDocumentId,
+  selectedDocs,
+  onToggleSelect,
 }: {
   doc: Record<string, unknown>;
   docId: string;
@@ -358,6 +362,8 @@ function DocumentJsonCard({
   compareDocs?: string[];
   onToggleCompare?: (docId: string, checked: boolean) => void;
   onCopyDocumentId: (id: string) => void;
+  selectedDocs?: Set<string>;
+  onToggleSelect?: (docId: string, checked: boolean) => void;
 }) {
   const [collapseFromDepth, setCollapseFromDepth] = useState(1);
   const [treeKey, setTreeKey] = useState(0);
@@ -379,36 +385,50 @@ function DocumentJsonCard({
 
   const inCompare = compareDocs?.includes(docId) ?? false;
   const compareDisabled = compareMode && (compareDocs?.length ?? 0) >= 2 && !inCompare;
+  const isSelected = selectedDocs?.has(docId) ?? false;
 
   return (
     <article
       className={`group/card w-full rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden transition-shadow hover:shadow-md ${
         pinned ? "border-amber-500/50 ring-1 ring-amber-500/20 bg-amber-500/3" : "border-border/80"
-      } ${inCompare ? "ring-1 ring-violet-500/40 border-violet-500/30" : ""}`}
+      } ${isSelected ? "border-primary bg-primary/[0.02] ring-1 ring-primary/20" : ""} ${inCompare ? "ring-1 ring-violet-500/40 border-violet-500/30" : ""}`}
     >
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/50 bg-gradient-to-b from-muted/50 to-muted/20 px-3 py-2 backdrop-blur-sm">
-        {compareMode && onToggleCompare && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex shrink-0">
-                <input
-                  type="checkbox"
-                  className="rounded accent-violet-500 w-3.5 h-3.5"
-                  checked={inCompare}
-                  disabled={compareDisabled}
-                  onChange={(e) => onToggleCompare(docId, e.target.checked)}
-                  aria-label="Compare document"
-                />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {compareDisabled
-                ? "Compare allows only two documents — clear one to pick another"
-                : inCompare
-                  ? "Remove from compare"
-                  : "Add to compare (pick two documents)"}
-            </TooltipContent>
-          </Tooltip>
+        {compareMode ? (
+          onToggleCompare && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex shrink-0">
+                  <input
+                    type="checkbox"
+                    className="rounded accent-violet-500 w-3.5 h-3.5"
+                    checked={inCompare}
+                    disabled={compareDisabled}
+                    onChange={(e) => onToggleCompare(docId, e.target.checked)}
+                    aria-label="Compare document"
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {compareDisabled
+                  ? "Compare allows only two documents — clear one to pick another"
+                  : inCompare
+                    ? "Remove from compare"
+                    : "Add to compare (pick two documents)"}
+              </TooltipContent>
+            </Tooltip>
+          )
+        ) : (
+          onToggleSelect && (
+            <input
+              type="checkbox"
+              className="rounded accent-primary w-3.5 h-3.5 cursor-pointer mr-1"
+              checked={isSelected}
+              onChange={(e) => onToggleSelect(docId, e.target.checked)}
+              title="Select document"
+              aria-label="Select document"
+            />
+          )
         )}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -530,6 +550,8 @@ export function DocumentsJsonView({
   compareMode = false,
   compareDocs = [],
   onToggleCompare,
+  selectedDocs,
+  onToggleSelect,
 }: DocumentsJsonViewProps) {
   const { toast } = useToast();
 
@@ -574,6 +596,8 @@ export function DocumentsJsonView({
             compareDocs={compareDocs}
             onToggleCompare={onToggleCompare}
             onCopyDocumentId={copyDocumentId}
+            selectedDocs={selectedDocs}
+            onToggleSelect={onToggleSelect}
           />
         );
       })}

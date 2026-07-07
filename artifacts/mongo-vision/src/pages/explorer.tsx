@@ -198,6 +198,7 @@ export default function Explorer() {
   const [editJson, setEditJson] = useState("{}");
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const [bulkUpdateJson, setBulkUpdateJson] = useState(`{\n  "$set": {\n    \n  }\n}`);
+  const [customColOrders, setCustomColOrders] = useState<Record<string, string[]>>({});
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
   const [showSingleDeleteConfirm, setShowSingleDeleteConfirm] = useState(false);
@@ -995,6 +996,21 @@ export default function Explorer() {
     return ["_id"];
   }, [schemaData, docs]);
 
+  const orderedFields = useMemo(() => {
+    const order = customColOrders[`${database}.${collection}`] || [];
+    const current = allFields;
+    const filtered = order.filter(f => current.includes(f));
+    const added = current.filter(f => !filtered.includes(f));
+    return [...filtered, ...added];
+  }, [allFields, customColOrders, database, collection]);
+
+  const handleReorderFields = useCallback((fields: string[]) => {
+    setCustomColOrders(prev => ({
+      ...prev,
+      [`${database}.${collection}`]: fields
+    }));
+  }, [database, collection]);
+
   const typeColor: Record<string, string> = {
     string: "text-emerald-400", number: "text-amber-400", boolean: "text-violet-400",
     object: "text-blue-400", array: "text-orange-400", null: "text-rose-400",
@@ -1724,7 +1740,7 @@ export default function Explorer() {
                     </div>
                   </div>
                 ) : (() => {
-                  const visibleFields = allFields.filter(f => !hiddenColumns.has(f));
+                  const visibleFields = orderedFields.filter(f => !hiddenColumns.has(f));
                   const sortedDocs = sortedVisibleDocs;
 
                   // ─── JSON View ───
@@ -1753,6 +1769,15 @@ export default function Explorer() {
                             if (prev.includes(docId)) return prev;
                             if (prev.length >= 2) return prev;
                             return [...prev, docId];
+                          })
+                        }
+                        selectedDocs={selectedDocs}
+                        onToggleSelect={(docId, checked) =>
+                          setSelectedDocs((prev) => {
+                            const n = new Set(prev);
+                            if (checked) n.add(docId);
+                            else n.delete(docId);
+                            return n;
                           })
                         }
                       />
@@ -1786,6 +1811,15 @@ export default function Explorer() {
                             if (prev.includes(docId)) return prev;
                             if (prev.length >= 2) return prev;
                             return [...prev, docId];
+                          })
+                        }
+                        selectedDocs={selectedDocs}
+                        onToggleSelect={(docId, checked) =>
+                          setSelectedDocs((prev) => {
+                            const n = new Set(prev);
+                            if (checked) n.add(docId);
+                            else n.delete(docId);
+                            return n;
                           })
                         }
                       />
@@ -1843,6 +1877,7 @@ export default function Explorer() {
                         inlineEditCell,
                         onInlineEdit: handleInlineEdit,
                         setInlineEditCell,
+                        onReorderFields: handleReorderFields,
                       }}
                     />
                   );

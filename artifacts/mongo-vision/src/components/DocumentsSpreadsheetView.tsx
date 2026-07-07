@@ -63,6 +63,7 @@ export interface SpreadsheetHandlers {
     previousValue: string,
   ) => Promise<boolean>;
   setInlineEditCell: (v: { docId: string; field: string; value: string } | null) => void;
+  onReorderFields: (fields: string[]) => void;
 }
 
 interface DocumentsSpreadsheetViewProps {
@@ -92,6 +93,78 @@ export function DocumentsSpreadsheetView({
   const cellClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [resizingCol, setResizingCol] = useState<string | null>(null);
   const [resizingRow, setResizingRow] = useState<string | null>(null);
+  const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colIndex: number } | null>(null);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (handlers.inlineEditCell) {
+      return;
+    }
+
+    if (!focusedCell) {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"].includes(e.key)) {
+        e.preventDefault();
+        setFocusedCell({ rowIndex: 0, colIndex: 0 });
+      }
+      return;
+    }
+
+    const maxRow = docs.length - 1;
+    const maxCol = visibleFields.length - 1;
+    let { rowIndex, colIndex } = focusedCell;
+
+    switch (e.key) {
+      case "ArrowUp":
+        e.preventDefault();
+        rowIndex = Math.max(0, rowIndex - 1);
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        rowIndex = Math.min(maxRow, rowIndex + 1);
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        colIndex = Math.max(0, colIndex - 1);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        colIndex = Math.min(maxCol, colIndex + 1);
+        break;
+      case "Tab":
+        e.preventDefault();
+        if (e.shiftKey) {
+          colIndex = colIndex - 1;
+          if (colIndex < 0) {
+            colIndex = maxCol;
+            rowIndex = Math.max(0, rowIndex - 1);
+          }
+        } else {
+          colIndex = colIndex + 1;
+          if (colIndex > maxCol) {
+            colIndex = 0;
+            rowIndex = Math.min(maxRow, rowIndex + 1);
+          }
+        }
+        break;
+      case "Enter":
+        e.preventDefault();
+        const doc = docs[rowIndex];
+        const field = visibleFields[colIndex];
+        if (field === "_id") return;
+        const raw = doc[field];
+        handlers.setInlineEditCell({
+          docId: String(doc._id),
+          field,
+          value: raw !== null && typeof raw === "object"
+            ? JSON.stringify(raw, null, 2)
+            : String(raw ?? ""),
+        });
+        break;
+      default:
+        return;
+    }
+
+    setFocusedCell({ rowIndex, colIndex });
+  }, [focusedCell, docs, visibleFields, handlers]);
   const [cellDetailModal, setCellDetailModal] = useState<{
     docId: string;
     field: string;
@@ -241,7 +314,29 @@ export function DocumentsSpreadsheetView({
     return (
       <div
         key={f}
-        className="relative shrink-0 px-1 py-2 font-mono font-medium text-muted-foreground border-r border-border/50 flex items-center gap-0.5 bg-muted/40"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", f);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const draggedField = e.dataTransfer.getData("text/plain");
+          if (draggedField && draggedField !== f) {
+            const nextFields = [...visibleFields];
+            const dragIdx = nextFields.indexOf(draggedField);
+            const dropIdx = nextFields.indexOf(f);
+            if (dragIdx !== -1 && dropIdx !== -1) {
+              nextFields.splice(dragIdx, 1);
+              nextFields.splice(dropIdx, 0, draggedField);
+              handlers.onReorderFields(nextFields);
+            }
+          }
+        }}
+        className="relative shrink-0 px-1 py-2 font-mono font-medium text-muted-foreground border-r border-border/50 flex items-center gap-0.5 bg-muted/40 cursor-grab active:cursor-grabbing select-none"
         style={{ width: colWidth(f), minWidth: colWidth(f) }}
       >
         <Tooltip>
@@ -272,16 +367,26 @@ export function DocumentsSpreadsheetView({
     );
   };
 
-  const renderDataCell = (doc: Record<string, unknown>, docId: string, f: string) => {
+  const renderDataCell = (
+    doc: Record<string, unknown>,
+    docId: string,
+    f: string,
+    rowIndex: number,
+    colIndex: number
+  ) => {
     const raw = doc[f];
     const display =
       raw === undefined ? "—" : raw === null ? "null" : formatSpreadsheetCellValue(raw);
     const prevVal = handlers.inlineEditCell?.value ?? "";
+    const isFocused = focusedCell?.rowIndex === rowIndex && focusedCell?.colIndex === colIndex;
+    const isSelected = handlers.selectedDocs.has(docId);
 
     return (
       <div
         key={`${docId}-${f}`}
-        className="shrink-0 px-1 py-0.5 font-mono border-r border-border/40 flex min-h-0 items-stretch bg-card/30"
+        className={`shrink-0 px-1 py-0.5 font-mono border-r border-border/40 flex min-h-0 items-stretch ${
+          isSelected ? "bg-primary/[0.04] dark:bg-primary/[0.08]" : "bg-card/30"
+        }`}
         style={{
           width: colWidth(f),
           minWidth: colWidth(f),
@@ -319,13 +424,16 @@ export function DocumentsSpreadsheetView({
               isCollectionLike(raw)
                 ? "cursor-pointer hover:bg-muted/40 hover:border-border/50"
                 : "cursor-default hover:bg-muted/20"
-            }`}
+            } ${isFocused ? "ring-2 ring-primary bg-primary/10 border-primary" : ""}`}
             title={
               isCollectionLike(raw)
                 ? "Click: edit in modal · Double-click: inline edit · scroll inside cell (no bar)"
                 : "Double-click: inline edit · scroll inside cell (no bar)"
             }
-            onClick={() => scheduleCellModal(docId, f, raw)}
+            onClick={() => {
+              setFocusedCell({ rowIndex, colIndex });
+              scheduleCellModal(docId, f, raw);
+            }}
             onDoubleClick={(e) => {
               e.preventDefault();
               cancelCellModalOpen();
@@ -370,7 +478,12 @@ export function DocumentsSpreadsheetView({
   };
 
   return (
-    <div className="flex flex-col border-t border-border text-xs">
+    <div
+      className="flex flex-col border-t border-border text-xs focus:outline-none"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      onBlur={() => setFocusedCell(null)}
+    >
       <div className="flex items-center gap-2 px-2 py-1 border-b border-border/50 bg-muted/20 text-[10px] text-muted-foreground shrink-0 flex-wrap">
         <span>Spreadsheet</span>
         <Button variant="outline" size="sm" className="h-6 text-[9px]" type="button" onClick={applyWidthToAllColumns}>
@@ -458,12 +571,16 @@ export function DocumentsSpreadsheetView({
           {docs.map((doc) => {
             const docId = String(doc._id || "");
             const pin = handlers.isPinned(docId);
+            const isSelected = handlers.selectedDocs.has(docId);
+            const rowClass = pin
+              ? "bg-amber-500/5 border-l-2 border-l-amber-500"
+              : isSelected
+                ? "bg-primary/10 border-l-2 border-l-primary"
+                : "bg-card";
             return (
               <div
                 key={docId}
-                className={`relative flex items-center justify-center border-b border-border/60 shrink-0 ${
-                  pin ? "bg-amber-500/5 border-l-2 border-l-amber-500" : "bg-card"
-                }`}
+                className={`relative flex items-center justify-center border-b border-border/60 shrink-0 ${rowClass}`}
                 style={{ height: layout.rowHeight, minHeight: layout.rowHeight }}
               >
                 {handlers.compareMode ? (
@@ -508,16 +625,25 @@ export function DocumentsSpreadsheetView({
               <div className="flex shrink-0 border-b border-border bg-muted/40" style={{ height: headerH }}>
                 {frozenFields.map((f) => renderColumnHeader(f))}
               </div>
-              {docs.map((doc) => {
+              {docs.map((doc, rowIndex) => {
                 const docId = String(doc._id || "");
                 const pin = handlers.isPinned(docId);
+                const isSelected = handlers.selectedDocs.has(docId);
+                const rowBg = pin
+                  ? "bg-amber-500/2"
+                  : isSelected
+                    ? "bg-primary/[0.04]"
+                    : "";
                 return (
                   <div
                     key={docId}
-                    className={`flex shrink-0 border-b border-border/60 ${pin ? "bg-amber-500/2" : ""}`}
+                    className={`flex shrink-0 border-b border-border/60 ${rowBg}`}
                     style={{ height: layout.rowHeight, minHeight: layout.rowHeight }}
                   >
-                    {frozenFields.map((f) => renderDataCell(doc, docId, f))}
+                    {frozenFields.map((f) => {
+                      const colIndex = visibleFields.indexOf(f);
+                      return renderDataCell(doc, docId, f, rowIndex, colIndex);
+                    })}
                   </div>
                 );
               })}
@@ -538,18 +664,27 @@ export function DocumentsSpreadsheetView({
                   (f) => renderColumnHeader(f),
                 )}
               </div>
-              {docs.map((doc) => {
+              {docs.map((doc, rowIndex) => {
                 const docId = String(doc._id || "");
                 const pin = handlers.isPinned(docId);
+                const isSelected = handlers.selectedDocs.has(docId);
+                const rowBg = pin
+                  ? "bg-amber-500/2"
+                  : isSelected
+                    ? "bg-primary/[0.04]"
+                    : "";
                 const fieldsForRow =
                   scrollFields.length === 0 && frozenFields.length === 0 ? visibleFields : scrollFields;
                 return (
                   <div key={docId} className="shrink-0">
                     <div
-                      className={`flex border-b border-border/60 hover:bg-muted/10 ${pin ? "bg-amber-500/2" : ""}`}
+                      className={`flex border-b border-border/60 hover:bg-muted/10 ${rowBg}`}
                       style={{ height: layout.rowHeight, minHeight: layout.rowHeight }}
                     >
-                      {fieldsForRow.map((f) => renderDataCell(doc, docId, f))}
+                      {fieldsForRow.map((f) => {
+                        const colIndex = visibleFields.indexOf(f);
+                        return renderDataCell(doc, docId, f, rowIndex, colIndex);
+                      })}
                     </div>
                   </div>
                 );
@@ -572,10 +707,13 @@ export function DocumentsSpreadsheetView({
           {docs.map((doc) => {
             const docId = String(doc._id || "");
             const isPinned = handlers.isPinned(docId);
+            const isSelected = handlers.selectedDocs.has(docId);
             return (
               <div
                 key={docId}
-                className="flex items-center justify-end gap-0.5 px-1 border-b border-border/60 shrink-0"
+                className={`flex items-center justify-end gap-0.5 px-1 border-b border-border/60 shrink-0 ${
+                  isSelected ? "bg-primary/[0.04] dark:bg-primary/[0.08]" : ""
+                }`}
                 style={{ height: layout.rowHeight, minHeight: layout.rowHeight }}
               >
                 <Tooltip>

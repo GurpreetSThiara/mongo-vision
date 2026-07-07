@@ -32,6 +32,8 @@ export interface DocumentsCardViewProps {
   compareMode?: boolean;
   compareDocs?: string[];
   onToggleCompare?: (docId: string, checked: boolean) => void;
+  selectedDocs?: Set<string>;
+  onToggleSelect?: (docId: string, checked: boolean) => void;
 }
 
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".avif"];
@@ -176,6 +178,8 @@ function DocumentCard({
   compareMode,
   compareDocs,
   onToggleCompare,
+  selectedDocs,
+  onToggleSelect,
 }: {
   doc: Record<string, unknown>;
   visibleFields: string[];
@@ -188,6 +192,8 @@ function DocumentCard({
   compareMode?: boolean;
   compareDocs?: string[];
   onToggleCompare?: (docId: string, checked: boolean) => void;
+  selectedDocs?: Set<string>;
+  onToggleSelect?: (docId: string, checked: boolean) => void;
 }) {
   const docId = String(doc._id || "");
 
@@ -201,12 +207,13 @@ function DocumentCard({
 
   const inCompare = compareDocs?.includes(docId) ?? false;
   const compareDisabled = compareMode && (compareDocs?.length ?? 0) >= 2 && !inCompare;
+  const isSelected = selectedDocs?.has(docId) ?? false;
 
   return (
     <article
       className={`group relative flex flex-col rounded-xl border bg-card p-4 transition-all duration-300 hover:shadow-lg hover:border-primary/30 ${
         pinned ? "border-amber-500/40 bg-amber-500/[0.02] ring-1 ring-amber-500/10" : "border-border/60"
-      } ${inCompare ? "ring-1 ring-violet-500/40 border-violet-500/30 bg-violet-500/[0.01]" : ""}`}
+      } ${isSelected ? "border-primary bg-primary/[0.02] ring-1 ring-primary/20" : ""} ${inCompare ? "ring-1 ring-violet-500/40 border-violet-500/30 bg-violet-500/[0.01]" : ""}`}
     >
       <header className="flex items-start justify-between gap-3 mb-4">
         <div className="min-w-0 flex-1">
@@ -231,7 +238,7 @@ function DocumentCard({
         </div>
 
         <div className="flex items-center gap-0.5 shrink-0">
-          {compareMode && (
+          {compareMode ? (
              <input
                 type="checkbox"
                 className="mr-1.5 rounded accent-violet-500 w-3.5 h-3.5"
@@ -239,6 +246,17 @@ function DocumentCard({
                 disabled={compareDisabled}
                 onChange={(e) => onToggleCompare?.(docId, e.target.checked)}
              />
+          ) : (
+             onToggleSelect && (
+               <input
+                  type="checkbox"
+                  className="mr-1.5 rounded accent-primary w-3.5 h-3.5 cursor-pointer"
+                  checked={isSelected}
+                  onChange={(e) => onToggleSelect(docId, e.target.checked)}
+                  title="Select document"
+                  aria-label="Select document"
+               />
+             )
           )}
 
           <Tooltip>
@@ -334,6 +352,8 @@ export function DocumentsCardView({
   compareMode,
   compareDocs,
   onToggleCompare,
+  selectedDocs,
+  onToggleSelect,
 }: DocumentsCardViewProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 p-4">
@@ -353,6 +373,8 @@ export function DocumentsCardView({
             compareMode={compareMode}
             compareDocs={compareDocs}
             onToggleCompare={onToggleCompare}
+            selectedDocs={selectedDocs}
+            onToggleSelect={onToggleSelect}
           />
         );
       })}
