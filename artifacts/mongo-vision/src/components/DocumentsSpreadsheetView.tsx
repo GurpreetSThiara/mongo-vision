@@ -8,12 +8,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  ChevronRight,
   Copy,
   Loader2,
+  Pencil,
   Pin,
   Plus,
-  Settings,
   Snowflake,
   Trash2,
 } from "lucide-react";
@@ -723,13 +722,13 @@ export function DocumentsSpreadsheetView({
                       variant="ghost"
                       className="h-6 w-6 p-0"
                       type="button"
-                      aria-label="Open full document JSON"
+                      aria-label="Edit document"
                       onClick={() => handlers.onOpenFullDocument(doc)}
                     >
-                      <ChevronRight className="w-3 h-3" />
+                      <Pencil className="w-3 h-3" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Open full document (JSON)</TooltipContent>
+                  <TooltipContent side="bottom">Edit document (JSON)</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -777,21 +776,6 @@ export function DocumentsSpreadsheetView({
                   <TooltipContent side="bottom">
                     {isPinned ? "Unpin from top" : "Pin to top"}
                   </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 w-6 p-0"
-                      type="button"
-                      aria-label="Edit fields"
-                      onClick={() => handlers.onEdit(docId, doc)}
-                    >
-                      <Settings className="w-3 h-3" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Edit document (modal)</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
