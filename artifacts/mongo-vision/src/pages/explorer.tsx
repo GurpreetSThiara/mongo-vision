@@ -202,6 +202,8 @@ export default function Explorer() {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
   const [showSingleDeleteConfirm, setShowSingleDeleteConfirm] = useState(false);
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
+  const [docToDuplicate, setDocToDuplicate] = useState<Record<string, unknown> | null>(null);
   const [showCreateColModal, setShowCreateColModal] = useState(false);
   const [validationData, setValidationData] = useState<any>(null);
   const [isEditingValidation, setIsEditingValidation] = useState(false);
@@ -550,14 +552,23 @@ export default function Explorer() {
     }
   };
 
-  const handleDuplicateDoc = async (doc: Record<string, unknown>) => {
+  const handleDuplicateDoc = (doc: Record<string, unknown>) => {
+    setDocToDuplicate(doc);
+    setShowDuplicateConfirm(true);
+  };
+
+  const executeDuplicateDoc = async () => {
+    if (!docToDuplicate) return;
     try {
-      const { _id, ...rest } = doc;
+      const { _id, ...rest } = docToDuplicate;
       await insertDoc.mutateAsync({ connectionId, dbName: database, collectionName: collection, data: { document: rest } });
       queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
       toast({ title: "Document duplicated" });
     } catch (err: any) {
       toast({ title: "Duplicate failed", description: err.message, variant: "destructive" });
+    } finally {
+      setDocToDuplicate(null);
+      setShowDuplicateConfirm(false);
     }
   };
 
@@ -2482,6 +2493,29 @@ export default function Explorer() {
               setShowSingleDeleteConfirm(false);
               setDocToDelete(null);
             }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Single Duplicate Confirmation */}
+      <Dialog open={showDuplicateConfirm} onOpenChange={setShowDuplicateConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="w-5 h-5 text-primary" />
+              Duplicate Document
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-sm text-muted-foreground">
+            Are you sure you want to duplicate this document? This will create a new copy with a new unique _id.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDuplicateConfirm(false)}>Cancel</Button>
+            <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => {
+              void executeDuplicateDoc();
+            }}>
+              Duplicate
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
