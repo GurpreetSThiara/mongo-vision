@@ -67,6 +67,7 @@ import { DocumentsSpreadsheetView } from "@/components/DocumentsSpreadsheetView"
 import { DocumentsJsonView } from "@/components/DocumentsJsonView";
 import { DocumentsCardView } from "@/components/DocumentsCardView";
 import { DocumentJsonModal } from "@/components/DocumentJsonModal";
+import { MonacoJsonEditor } from "@/components/MonacoJsonEditor";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { mongoshDocumentToObject } from "@/lib/mongoshQuery";
 import {
@@ -189,9 +190,14 @@ export default function Explorer() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importData, setImportData] = useState("");
   const [importFormat, setImportFormat] = useState<"json" | "csv">("json");
+  const [importFileName, setImportFileName] = useState<string>("");
+  const [importFileSize, setImportFileSize] = useState<number>(0);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editDocId, setEditDocId] = useState("");
   const [editJson, setEditJson] = useState("{}");
+  const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
+  const [bulkUpdateJson, setBulkUpdateJson] = useState(`{\n  "$set": {\n    \n  }\n}`);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
   const [showSingleDeleteConfirm, setShowSingleDeleteConfirm] = useState(false);
@@ -460,6 +466,26 @@ export default function Explorer() {
   const dropCol = useDropCollection();
   const dropDb = useDropDatabase();
 
+  const handleImportFile = (file: File) => {
+    if (!file) return;
+    const name = file.name;
+    const size = file.size;
+    const extension = name.split(".").pop()?.toLowerCase();
+
+    if (extension === "json" || extension === "csv") {
+      setImportFormat(extension as "json" | "csv");
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      setImportData(text || "");
+      setImportFileName(name);
+      setImportFileSize(size);
+    };
+    reader.readAsText(file);
+  };
+
   const handleInsert = async () => {
     try {
       const doc = JSON.parse(insertJson);
@@ -494,6 +520,32 @@ export default function Explorer() {
       toast({ title: `${ids.length} documents deleted` });
     } catch (err: any) {
       toast({ title: "Bulk delete failed", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    const ids = Array.from(selectedDocs);
+    if (ids.length === 0) return;
+    try {
+      const updateObj = JSON.parse(bulkUpdateJson);
+      const filter = { _id: { $in: ids.map(id => ({ $oid: id })) } };
+      await bulkOp.mutateAsync({
+        connectionId,
+        dbName: database,
+        collectionName: collection,
+        data: {
+          operation: "updateMany",
+          filter,
+          update: updateObj
+        }
+      });
+      queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
+      setSelectedDocs(new Set());
+      setShowBulkUpdateModal(false);
+      setBulkUpdateJson(`{\n  "$set": {\n    \n  }\n}`);
+      toast({ title: `${ids.length} documents updated` });
+    } catch (err: any) {
+      toast({ title: "Bulk update failed", description: err.message, variant: "destructive" });
     }
   };
 
@@ -1142,7 +1194,12 @@ export default function Explorer() {
                 <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => handleExport("csv")}>
                   <Download className="w-3 h-3" /> CSV
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowImportModal(true)}>
+                <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => {
+                  setImportData("");
+                  setImportFileName("");
+                  setImportFileSize(0);
+                  setShowImportModal(true);
+                }}>
                   <Upload className="w-3 h-3" /> Import
                 </Button>
                 <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setShowInsertModal(true)}>
@@ -1273,9 +1330,22 @@ export default function Explorer() {
                   </Button>
                   <div className="flex-1" />
                   {selectedDocs.size > 0 && (
-                    <Button size="sm" variant="destructive" className="h-6 text-[10px] gap-1" onClick={handleBulkDelete}>
-                      <Trash2 className="w-2.5 h-2.5" /> Delete {selectedDocs.size}
-                    </Button>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] gap-1 border-violet-500/30 text-violet-400 bg-violet-500/10 hover:bg-violet-500/20 hover:text-violet-300"
+                        onClick={() => {
+                          setBulkUpdateJson(`{\n  "$set": {\n    \n  }\n}`);
+                          setShowBulkUpdateModal(true);
+                        }}
+                      >
+                        <RefreshCw className="w-2.5 h-2.5" /> Update {selectedDocs.size}
+                      </Button>
+                      <Button size="sm" variant="destructive" className="h-6 text-[10px] gap-1" onClick={handleBulkDelete}>
+                        <Trash2 className="w-2.5 h-2.5" /> Delete {selectedDocs.size}
+                      </Button>
+                    </div>
                   )}
                 </div>
 
@@ -2277,11 +2347,11 @@ export default function Explorer() {
           <DialogHeader>
             <DialogTitle>Insert Document</DialogTitle>
           </DialogHeader>
-          <Textarea
+          <MonacoJsonEditor
             value={insertJson}
-            onChange={e => setInsertJson(e.target.value)}
-            className="font-mono text-xs h-64 resize-none"
-            data-testid="textarea-insert-doc"
+            onChange={val => setInsertJson(val || "")}
+            height="260px"
+            onSave={handleInsert}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowInsertModal(false)}>Cancel</Button>
@@ -2299,10 +2369,11 @@ export default function Explorer() {
             <DialogTitle>Edit Document</DialogTitle>
           </DialogHeader>
           <p className="text-xs text-muted-foreground font-mono">_id: {editDocId}</p>
-          <Textarea
+          <MonacoJsonEditor
             value={editJson}
-            onChange={e => setEditJson(e.target.value)}
-            className="font-mono text-xs h-64 resize-none"
+            onChange={val => setEditJson(val || "")}
+            height="260px"
+            onSave={handleEditSave}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditModal(false)}>Cancel</Button>
@@ -2327,6 +2398,35 @@ export default function Explorer() {
         onSave={() => void handleFullDocumentJsonModalSave()}
         isSaving={updateDoc.isPending}
       />
+
+      {/* Bulk Update Modal */}
+      <Dialog open={showBulkUpdateModal} onOpenChange={setShowBulkUpdateModal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulk Update Documents</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Applying update to <strong className="text-foreground">{selectedDocs.size}</strong> selected documents.
+            </p>
+            <p className="text-[10px] text-amber-500 bg-amber-500/5 border border-amber-500/10 px-2 py-1 rounded">
+              ⚠️ Use standard MongoDB update operators (e.g. <code>$set</code>, <code>$unset</code>).
+            </p>
+            <MonacoJsonEditor
+              value={bulkUpdateJson}
+              onChange={val => setBulkUpdateJson(val || "")}
+              height="240px"
+              onSave={handleBulkUpdate}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkUpdateModal(false)}>Cancel</Button>
+            <Button onClick={handleBulkUpdate} disabled={bulkOp.isPending} className="bg-violet-600 hover:bg-violet-700 text-white">
+              {bulkOp.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : `Update ${selectedDocs.size} Docs`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Single Delete Confirmation */}
       <Dialog open={showSingleDeleteConfirm} onOpenChange={setShowSingleDeleteConfirm}>
@@ -2396,7 +2496,7 @@ export default function Explorer() {
           <DialogHeader>
             <DialogTitle>Import Data</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-4">
             <Select value={importFormat} onValueChange={v => setImportFormat(v as "json" | "csv")}>
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue />
@@ -2406,12 +2506,96 @@ export default function Explorer() {
                 <SelectItem value="csv">CSV</SelectItem>
               </SelectContent>
             </Select>
-            <Textarea
-              value={importData}
-              onChange={e => setImportData(e.target.value)}
-              className="font-mono text-xs h-48 resize-none"
-              placeholder={importFormat === "json" ? '[{"name": "example", "value": 42}]' : 'name,value\nexample,42'}
-            />
+
+            {/* Drag & Drop Area */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleImportFile(file);
+              }}
+              onClick={() => document.getElementById("file-import-input")?.click()}
+              className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors ${
+                isDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 bg-muted/10"
+              }`}
+            >
+              <input
+                type="file"
+                id="file-import-input"
+                className="hidden"
+                accept=".json,.csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImportFile(file);
+                }}
+              />
+              <div className="flex flex-col items-center justify-center gap-1.5 text-muted-foreground">
+                <Upload className="w-8 h-8 text-muted-foreground/60 mb-0.5 animate-pulse" />
+                <p className="text-xs font-medium text-foreground">
+                  Drag & drop JSON/CSV here, or <span className="text-primary hover:underline">browse</span>
+                </p>
+                <p className="text-[10px]">Max performance rendering limit: 150 KB</p>
+              </div>
+            </div>
+
+            {/* File loaded feedback */}
+            {importFileName && (
+              <div className="flex items-center justify-between p-2 rounded-lg border border-border/80 bg-muted/30 text-xs">
+                <div className="flex items-center gap-2 truncate">
+                  <FileJson className="w-4 h-4 text-primary/80 shrink-0" />
+                  <div className="truncate text-left">
+                    <p className="font-medium truncate text-foreground">{importFileName}</p>
+                    <p className="text-[9px] text-muted-foreground">
+                      {importFileSize >= 1048576
+                        ? `${(importFileSize / 1048576).toFixed(2)} MB`
+                        : `${(importFileSize / 1024).toFixed(1)} KB`}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-rose-500 hover:text-rose-600 hover:bg-rose-500/5 text-[10px] shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setImportData("");
+                    setImportFileName("");
+                    setImportFileSize(0);
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            )}
+
+            {/* Performance handling: hide preview if file > 150KB */}
+            {importFileSize > 150000 ? (
+              <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-[10px] leading-relaxed">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>
+                  Large file loaded ({ (importFileSize / 1024).toFixed(0) } KB). Preview editor is hidden to prevent performance lag. Click <strong>Import</strong> below to import all rows directly.
+                </span>
+              </div>
+            ) : importFormat === "json" ? (
+              <MonacoJsonEditor
+                value={importData}
+                onChange={val => setImportData(val || "")}
+                height="180px"
+              />
+            ) : (
+              <Textarea
+                value={importData}
+                onChange={e => setImportData(e.target.value)}
+                className="font-mono text-xs h-40 resize-none"
+                placeholder='name,value&#10;example,42'
+              />
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowImportModal(false)}>Cancel</Button>

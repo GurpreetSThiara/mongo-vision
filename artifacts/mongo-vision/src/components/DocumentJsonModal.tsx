@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { MonacoJsonEditor } from "@/components/MonacoJsonEditor";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -272,16 +272,13 @@ export function DocumentJsonModal({
               {parseError}
             </p>
           )}
-          <Textarea
+          <MonacoJsonEditor
             value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            spellCheck={false}
-            data-testid="textarea-full-document-json"
-            className={cn(
-              "font-mono text-sm leading-relaxed flex-1 min-h-[min(50vh,420px)] resize-none border-border/60 focus-visible:ring-2",
-              !wordWrap && "whitespace-pre overflow-x-auto",
-            )}
-            placeholder="{}"
+            onChange={(val) => onDraftChange(val || "")}
+            wordWrap={wordWrap}
+            onSave={!parseError && !isSaving ? onSave : undefined}
+            className="flex-1 min-h-[min(50vh,420px)]"
+            height="100%"
           />
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground shrink-0">
             <span>
