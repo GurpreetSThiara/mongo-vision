@@ -204,6 +204,12 @@ export default function Explorer() {
   const [showSingleDeleteConfirm, setShowSingleDeleteConfirm] = useState(false);
   const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false);
   const [docToDuplicate, setDocToDuplicate] = useState<Record<string, unknown> | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"json" | "csv">("json");
+  const [exportRange, setExportRange] = useState<"query" | "selected">("query");
+  const [exportLimit, setExportLimit] = useState<number>(1000);
+  const [importFileTooLarge, setImportFileTooLarge] = useState(false);
+  const [importCliCommand, setImportCliCommand] = useState("");
   const [showCreateColModal, setShowCreateColModal] = useState(false);
   const [validationData, setValidationData] = useState<any>(null);
   const [isEditingValidation, setIsEditingValidation] = useState(false);
@@ -486,6 +492,19 @@ export default function Explorer() {
       setImportFormat(extension as "json" | "csv");
     }
 
+    const limitBytes = 20 * 1024 * 1024;
+    if (size > limitBytes) {
+      setImportFileTooLarge(true);
+      setImportFileName(name);
+      setImportFileSize(size);
+      setImportData("");
+      setImportCliCommand(`mongoimport --uri="mongodb://localhost:27017" --db="${database}" --collection="${collection}" --file="${name}" --type=${extension === "csv" ? "csv" : "json"} --headerline`);
+      return;
+    }
+
+    setImportFileTooLarge(false);
+    setImportCliCommand("");
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
@@ -494,6 +513,56 @@ export default function Explorer() {
       setImportFileSize(size);
     };
     reader.readAsText(file);
+  };
+
+  const handleExport = async () => {
+    try {
+      let filterObj: any = {};
+      if (exportRange === "selected") {
+        if (selectedDocs.size === 0) {
+          toast({ title: "No documents selected", description: "Select documents to export, or choose all matching.", variant: "destructive" });
+          return;
+        }
+        filterObj = { _id: { $in: Array.from(selectedDocs).map(id => ({ $oid: id })) } };
+      } else {
+        const effFilterStr = docQueryLive ? filterStr : appliedFilterStr;
+        if (effFilterStr && effFilterStr.trim() !== "{}") {
+          try {
+            filterObj = JSON.parse(effFilterStr);
+          } catch {
+            toast({ title: "Invalid filter JSON", description: "Please correct the query filter formatting first.", variant: "destructive" });
+            return;
+          }
+        }
+      }
+
+      const res = await exportCol.mutateAsync({
+        connectionId,
+        dbName: database,
+        collectionName: collection,
+        data: {
+          format: exportFormat,
+          filter: filterObj,
+          limit: exportLimit || 1000,
+        }
+      });
+
+      const blob = new Blob([res.data || ""], {
+        type: exportFormat === "csv" ? "text/csv;charset=utf-8;" : "application/json;charset=utf-8;"
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", res.filename || `${collection}_export.${exportFormat}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast({ title: "Export completed", description: `Successfully exported ${res.documentCount} documents.` });
+      setShowExportModal(false);
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    }
   };
 
   const handleInsert = async () => {
@@ -779,24 +848,6 @@ export default function Explorer() {
     }
   };
 
-  const handleExport = async (format: "json" | "csv") => {
-    try {
-      const result = await exportCol.mutateAsync({
-        connectionId, dbName: database, collectionName: collection,
-        data: { format, filter: parseFilter(filterStr) }
-      });
-      const blob = new Blob([result.data], { type: format === "json" ? "application/json" : "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = result.filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: `Exported ${result.documentCount} documents` });
-    } catch (err: any) {
-      toast({ title: "Export failed", description: err.message, variant: "destructive" });
-    }
-  };
 
   const handleSaveQuery = async () => {
     try {
@@ -1234,11 +1285,16 @@ export default function Explorer() {
                 </Badge>
               )}
               <div className="ml-auto flex items-center gap-2">
-                <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => handleExport("json")}>
-                  <Download className="w-3 h-3" /> JSON
-                </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => handleExport("csv")}>
-                  <Download className="w-3 h-3" /> CSV
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-8 text-xs"
+                  onClick={() => {
+                    setExportRange(selectedDocs.size > 0 ? "selected" : "query");
+                    setShowExportModal(true);
+                  }}
+                >
+                  <Download className="w-3 h-3" /> Export
                 </Button>
                 <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => {
                   setImportData("");
@@ -2662,8 +2718,40 @@ export default function Explorer() {
               </div>
             )}
 
-            {/* Performance handling: hide preview if file > 150KB */}
-            {importFileSize > 150000 ? (
+            {/* Performance handling: hide preview if file > 150KB or too large */}
+            {importFileTooLarge ? (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 text-xs leading-relaxed">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-red-600 dark:text-red-400">File exceeds browser limit ({ (importFileSize / (1024 * 1024)).toFixed(1) } MB)</p>
+                    <p className="text-muted-foreground mt-1 text-[11px]">
+                      Web-based database uploads are capped at 20MB to prevent crashes. Use the high-performance MongoDB utility in your terminal instead:
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Run Command in Terminal</label>
+                  <div className="relative group">
+                    <pre className="p-3 rounded-lg bg-zinc-950 text-emerald-400 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap break-all select-all pr-12 border border-border/80">
+                      {importCliCommand}
+                    </pre>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="absolute right-2 top-2 h-7 w-7 p-0 opacity-80 hover:opacity-100 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300"
+                      onClick={() => {
+                        navigator.clipboard.writeText(importCliCommand);
+                        toast({ title: "Command copied to clipboard" });
+                      }}
+                      title="Copy to clipboard"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : importFileSize > 150000 ? (
               <div className="flex items-start gap-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-[10px] leading-relaxed">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
@@ -2701,9 +2789,94 @@ export default function Explorer() {
                   toast({ title: "Import failed", description: err.message, variant: "destructive" });
                 }
               }}
-              disabled={!importData}
+              disabled={!importData || importFileTooLarge}
             >
               Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export Modal */}
+      <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="w-5 h-5 text-primary" />
+              Export Collection Data
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-xs py-2">
+            <div className="space-y-1.5">
+              <label className="font-semibold text-muted-foreground">Export Format</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={exportFormat === "json" ? "default" : "outline"}
+                  className="h-8 text-xs justify-center"
+                  onClick={() => setExportFormat("json")}
+                >
+                  JSON (.json)
+                </Button>
+                <Button
+                  type="button"
+                  variant={exportFormat === "csv" ? "default" : "outline"}
+                  className="h-8 text-xs justify-center"
+                  onClick={() => setExportFormat("csv")}
+                >
+                  CSV (.csv)
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="font-semibold text-muted-foreground">Select Range</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={exportRange === "query" ? "default" : "outline"}
+                  className="h-8 text-xs justify-start px-3 font-mono"
+                  onClick={() => setExportRange("query")}
+                >
+                  Query: {appliedFilterStr.length > 25 ? appliedFilterStr.slice(0, 22) + "..." : appliedFilterStr}
+                </Button>
+                <Button
+                  type="button"
+                  variant={exportRange === "selected" ? "default" : "outline"}
+                  className="h-8 text-xs justify-start px-3 gap-1.5"
+                  onClick={() => setExportRange("selected")}
+                >
+                  Selected rows ({selectedDocs.size})
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="font-semibold text-muted-foreground">Max Limit</label>
+              <Input
+                type="number"
+                value={exportLimit || ""}
+                onChange={(e) => setExportLimit(Math.max(0, parseInt(e.target.value) || 0))}
+                placeholder="1000"
+                min={1}
+                max={10000}
+                className="h-8 text-xs font-mono"
+              />
+              <p className="text-[10px] text-muted-foreground">Up to 10,000 records can be exported client-side.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExportModal(false)} className="h-8 text-xs">
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleExport}
+              disabled={exportCol.isPending}
+              className="h-8 text-xs bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+            >
+              {exportCol.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              Export Data
             </Button>
           </DialogFooter>
         </DialogContent>
