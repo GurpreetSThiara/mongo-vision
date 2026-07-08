@@ -67,6 +67,7 @@ import { DocumentsSpreadsheetView } from "@/components/DocumentsSpreadsheetView"
 import { DocumentsJsonView } from "@/components/DocumentsJsonView";
 import { DocumentsCardView } from "@/components/DocumentsCardView";
 import { DocumentJsonModal } from "@/components/DocumentJsonModal";
+import { ServerPerformanceDashboard } from "@/components/ServerPerformanceDashboard";
 import { MonacoJsonEditor } from "@/components/MonacoJsonEditor";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { mongoshDocumentToObject } from "@/lib/mongoshQuery";
@@ -1562,13 +1563,17 @@ export default function Explorer() {
         </div>
 
         {!collection ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-muted-foreground">
-              <Database className="w-12 h-12 mx-auto mb-4 opacity-30" />
-              <p className="text-lg font-medium">Select a collection to explore</p>
-              <p className="text-sm mt-1">Navigate the sidebar to get started</p>
+          connectionId ? (
+            <ServerPerformanceDashboard connectionId={connectionId} />
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <Database className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                <p className="text-lg font-medium">Select a connection to start</p>
+                <p className="text-sm mt-1">Navigate the sidebar to connect</p>
+              </div>
             </div>
-          </div>
+          )
         ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
             <TabsList className="h-10 w-full justify-start rounded-none border-b border-border bg-card px-4 gap-1 shrink-0">
