@@ -139,6 +139,238 @@ function JsonTree({ data, depth = 0 }: { data: unknown; depth?: number }) {
   return <span>{String(data)}</span>;
 }
 
+function SchemaFieldVisualizer({ field }: { field: any }) {
+  const samples = field.sampleValues || [];
+  if (samples.length === 0) return null;
+
+  const types = field.types || [field.type];
+  const hasMultipleTypes = types.length > 1;
+
+  const typeCounts: Record<string, number> = {};
+  samples.forEach((v: any) => {
+    let t: string = typeof v;
+    if (v === null) t = "null";
+    else if (v instanceof Date || (typeof v === "string" && !isNaN(Date.parse(v)) && v.includes("T"))) t = "date";
+    else if (typeof v === "object" && v?.$oid) t = "objectid";
+    else if (Array.isArray(v)) t = "array";
+    else if (typeof v === "object") t = "object";
+    else if (typeof v === "number") t = "number";
+    else if (typeof v === "boolean") t = "boolean";
+    else if (typeof v === "string") t = "string";
+
+    let typeName = t.charAt(0).toUpperCase() + t.slice(1);
+    if (typeName === "Double" || typeName === "Int" || typeName === "Long") typeName = "Number";
+
+    typeCounts[typeName] = (typeCounts[typeName] || 0) + 1;
+  });
+
+  const totalSamples = samples.length;
+
+  const typeColorMap: Record<string, string> = {
+    String: "bg-emerald-500",
+    Number: "bg-amber-500",
+    Boolean: "bg-violet-500",
+    Object: "bg-blue-500",
+    Array: "bg-orange-500",
+    Objectid: "bg-cyan-500",
+    Date: "bg-pink-500",
+    Null: "bg-rose-500",
+  };
+
+  const typeTextColorMap: Record<string, string> = {
+    String: "text-emerald-400",
+    Number: "text-amber-400",
+    Boolean: "text-violet-400",
+    Object: "text-blue-400",
+    Array: "text-orange-400",
+    Objectid: "text-cyan-400",
+    Date: "text-pink-400",
+    Null: "text-rose-400",
+  };
+
+  const renderTypeSegments = () => {
+    if (!hasMultipleTypes) return null;
+    return (
+      <div className="space-y-1.5 mt-2">
+        <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Type Distribution</span>
+        <div className="w-full h-2 rounded-full bg-muted flex overflow-hidden">
+          {Object.entries(typeCounts).map(([type, count]) => {
+            const pct = (count / totalSamples) * 100;
+            const bgClass = typeColorMap[type] || "bg-primary";
+            return (
+              <div
+                key={type}
+                className={`h-full ${bgClass}`}
+                style={{ width: `${pct}%` }}
+                title={`${type}: ${Math.round(pct)}%`}
+              />
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap gap-2 text-[10px]">
+          {Object.entries(typeCounts).map(([type, count]) => {
+            const pct = Math.round((count / totalSamples) * 100);
+            const textClass = typeTextColorMap[type] || "text-foreground";
+            return (
+              <span key={type} className="font-mono flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${typeColorMap[type] || "bg-primary"}`} />
+                <span className={textClass}>{type}</span> ({pct}%)
+              </span>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const primaryType = field.type.toLowerCase();
+
+  if (primaryType === "boolean") {
+    let trues = 0;
+    let falses = 0;
+    samples.forEach((v: any) => {
+      if (v === true || String(v) === "true") trues++;
+      else if (v === false || String(v) === "false") falses++;
+    });
+    const truePct = totalSamples > 0 ? (trues / totalSamples) * 100 : 0;
+    const falsePct = totalSamples > 0 ? (falses / totalSamples) * 100 : 0;
+
+    return (
+      <div className="mt-3 space-y-2 border-t border-border/40 pt-2.5">
+        {renderTypeSegments()}
+        <div className="space-y-1">
+          <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+            <span>true ({Math.round(truePct)}%)</span>
+            <span>false ({Math.round(falsePct)}%)</span>
+          </div>
+          <div className="w-full h-3 rounded bg-muted overflow-hidden flex">
+            <div className="h-full bg-violet-500" style={{ width: `${truePct}%` }} title={`True: ${trues}`} />
+            <div className="h-full bg-zinc-600 dark:bg-zinc-700" style={{ width: `${falsePct}%` }} title={`False: ${falses}`} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (["number", "double", "int", "long", "decimal"].includes(primaryType)) {
+    const nums = samples.map((v: any) => Number(v)).filter((n: any) => !isNaN(n));
+    if (nums.length === 0) return renderTypeSegments();
+
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    const avg = nums.reduce((s: number, n: number) => s + n, 0) / nums.length;
+    const range = max - min;
+    const ratio = range > 0 ? ((avg - min) / range) * 100 : 50;
+
+    return (
+      <div className="mt-3 space-y-2.5 border-t border-border/40 pt-2.5">
+        {renderTypeSegments()}
+        <div className="grid grid-cols-3 gap-2 p-2 rounded bg-muted/30 text-center font-mono text-[10px] border border-border/30">
+          <div>
+            <p className="text-muted-foreground text-[8px] uppercase tracking-wider">Min</p>
+            <p className="font-semibold text-foreground text-xs mt-0.5">{min.toLocaleString()}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-[8px] uppercase tracking-wider">Avg</p>
+            <p className="font-semibold text-primary text-xs mt-0.5">{avg.toFixed(2)}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-[8px] uppercase tracking-wider">Max</p>
+            <p className="font-semibold text-foreground text-xs mt-0.5">{max.toLocaleString()}</p>
+          </div>
+        </div>
+        {range > 0 && (
+          <div className="space-y-1">
+            <div className="relative w-full h-1.5 rounded-full bg-muted mt-1.5">
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-primary border-2 border-background"
+                style={{ left: `calc(${ratio}% - 5px)` }}
+                title={`Average: ${avg.toFixed(2)}`}
+              />
+            </div>
+            <div className="flex justify-between text-[8px] text-muted-foreground font-mono">
+              <span>{min}</span>
+              <span>{max}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (primaryType === "string") {
+    const freq: Record<string, number> = {};
+    let totalStrings = 0;
+    samples.forEach((v: any) => {
+      if (typeof v === "string") {
+        freq[v] = (freq[v] || 0) + 1;
+        totalStrings++;
+      }
+    });
+
+    if (totalStrings === 0) return renderTypeSegments();
+
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 4);
+
+    return (
+      <div className="mt-3 space-y-2 border-t border-border/40 pt-2.5">
+        {renderTypeSegments()}
+        <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider block">Top Values Frequencies</span>
+        <div className="space-y-2">
+          {top.map(([val, count]) => {
+            const pct = (count / totalStrings) * 100;
+            return (
+              <div key={val} className="space-y-0.5">
+                <div className="flex justify-between text-[10px] font-mono leading-none">
+                  <span className="text-emerald-400 truncate max-w-[70%]" title={val}>"{val}"</span>
+                  <span className="text-muted-foreground shrink-0">{count} ({Math.round(pct)}%)</span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (primaryType === "date") {
+    const dates = samples
+      .map((v: any) => {
+        if (v instanceof Date) return v;
+        const p = Date.parse(String(v));
+        return isNaN(p) ? null : new Date(p);
+      })
+      .filter((d: any): d is Date => d !== null);
+
+    if (dates.length === 0) return renderTypeSegments();
+
+    const oldest = new Date(Math.min(...dates.map((d: Date) => d.getTime())));
+    const newest = new Date(Math.max(...dates.map((d: Date) => d.getTime())));
+
+    return (
+      <div className="mt-3 space-y-2 border-t border-border/40 pt-2.5">
+        {renderTypeSegments()}
+        <div className="grid grid-cols-2 gap-2 p-2 rounded bg-muted/30 text-center font-mono text-[9px] border border-border/30">
+          <div>
+            <p className="text-muted-foreground text-[8px] uppercase tracking-wider mb-0.5">Oldest Date</p>
+            <p className="font-semibold text-foreground truncate" title={oldest.toISOString()}>{oldest.toLocaleDateString()}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground text-[8px] uppercase tracking-wider mb-0.5">Newest Date</p>
+            <p className="font-semibold text-foreground truncate" title={newest.toISOString()}>{newest.toLocaleDateString()}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return renderTypeSegments();
+}
+
 function formatBytes(bytes: number) {
   if (!bytes) return "0 B";
   if (bytes < 1024) return bytes + " B";
@@ -2110,15 +2342,7 @@ export default function Explorer() {
                             </span>
                           </div>
                         </div>
-                        {field.sampleValues && field.sampleValues.length > 0 && (
-                          <div className="mt-1 flex gap-2">
-                            {field.sampleValues.slice(0, 3).map((v, i) => (
-                              <span key={i} className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                                {String(v).slice(0, 30)}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                        <SchemaFieldVisualizer field={field} />
                         {field.children && field.children.length > 0 && (
                           <div className="ml-4 mt-2 pl-2 border-l border-border space-y-1">
                             {field.children.map(child => (
