@@ -836,6 +836,17 @@ export default function Explorer() {
     }
   };
 
+  const handlePreviewStage = useCallback(async (pipelineStr: string) => {
+    const pipeline = JSON.parse(pipelineStr);
+    const result = await executeAggregate.mutateAsync({
+      connectionId,
+      dbName: database,
+      collectionName: collection,
+      data: { pipeline }
+    });
+    return (result.documents as Record<string, unknown>[]) || [];
+  }, [connectionId, database, collection, executeAggregate]);
+
   const handleExplain = async () => {
     try {
       const result = await explainQuery.mutateAsync({
@@ -2151,6 +2162,8 @@ export default function Explorer() {
                   onChange={v => setAggregatePipeline(v)}
                   fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
                   onExecute={handleRunAggregate}
+                  onPreviewStage={handlePreviewStage}
+                  collectionName={collection}
                 />
 
                 <div className="flex items-center gap-3">

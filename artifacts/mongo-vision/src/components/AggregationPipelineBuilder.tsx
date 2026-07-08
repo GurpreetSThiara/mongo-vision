@@ -5,8 +5,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import {
   Plus, Trash2, GripVertical, ChevronDown, ChevronRight,
-  Eye, EyeOff, Copy, ArrowDown, ArrowUp, Code,
+  Eye, EyeOff, Copy, ArrowDown, ArrowUp, Code, Loader2, Share2, Play
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
 import { QueryEditor, type FieldInfo } from "./QueryEditor";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -24,6 +33,8 @@ interface AggregationPipelineBuilderProps {
   onChange: (value: string) => void;
   fields: (string | FieldInfo)[];
   onExecute?: () => void;
+  onPreviewStage?: (pipelineStr: string) => Promise<Record<string, unknown>[]>;
+  collectionName?: string;
 }
 
 // ─── Stage Types ─────────────────────────────────────────────────────────────
@@ -125,9 +136,78 @@ function stagesToPipelineStr(stages: PipelineStage[]): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function AggregationPipelineBuilder({ value, onChange, fields, onExecute }: AggregationPipelineBuilderProps) {
+function JsonTree({ data, depth = 0 }: { data: unknown; depth?: number }) {
+  const [collapsed, setCollapsed] = useState(depth > 1);
+
+  if (data === null) return <span className="text-rose-400">null</span>;
+  if (data === undefined) return <span className="text-gray-500">undefined</span>;
+  if (typeof data === "boolean") return <span className="text-violet-400">{String(data)}</span>;
+  if (typeof data === "number") return <span className="text-amber-400">{String(data)}</span>;
+  if (typeof data === "string") return <span className="text-emerald-400">"{data}"</span>;
+
+  if (Array.isArray(data)) {
+    if (data.length === 0) return <span className="text-gray-400">[]</span>;
+    return (
+      <span>
+        <button onClick={() => setCollapsed(!collapsed)} className="text-gray-400 hover:text-white">
+          {collapsed ? <ChevronRight className="inline w-3 h-3 align-middle" /> : <ChevronDown className="inline w-3 h-3 align-middle" />}
+          <span className="text-gray-400 font-sans text-[11px] ml-0.5">[{data.length}]</span>
+        </button>
+        {!collapsed && (
+          <div className="ml-4 border-l border-zinc-700 pl-2">
+            {data.map((item, i) => (
+              <div key={i} className="my-0.5">
+                <span className="text-gray-500">{i}: </span>
+                <JsonTree data={item} depth={depth + 1} />
+              </div>
+            ))}
+          </div>
+        )}
+      </span>
+    );
+  }
+
+  if (typeof data === "object") {
+    const keys = Object.keys(data as object);
+    if (keys.length === 0) return <span className="text-gray-400">{"{}"}</span>;
+    return (
+      <span>
+        <button onClick={() => setCollapsed(!collapsed)} className="text-gray-400 hover:text-white">
+          {collapsed ? <ChevronRight className="inline w-3 h-3 align-middle" /> : <ChevronDown className="inline w-3 h-3 align-middle" />}
+          <span className="text-gray-400 font-sans text-[11px] ml-0.5">{"{"}…{"}"}</span>
+        </button>
+        {!collapsed && (
+          <div className="ml-4 border-l border-zinc-700 pl-2">
+            {keys.map((k) => (
+              <div key={k} className="my-0.5">
+                <span className="text-blue-300">"{k}"</span>
+                <span className="text-gray-400">: </span>
+                <JsonTree data={(data as Record<string, unknown>)[k]} depth={depth + 1} />
+              </div>
+            ))}
+          </div>
+        )}
+      </span>
+    );
+  }
+
+  return <span>{String(data)}</span>;
+}
+
+export function AggregationPipelineBuilder({
+  value,
+  onChange,
+  fields,
+  onExecute,
+  onPreviewStage,
+  collectionName = "collection",
+}: AggregationPipelineBuilderProps) {
   const [stages, setStages] = useState<PipelineStage[]>(() => parsePipelineToStages(value));
   const [showCode, setShowCode] = useState(false);
+  const [stagePreviews, setStagePreviews] = useState<Record<string, { docs: Record<string, unknown>[]; loading: boolean }>>({});
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportLang, setExportLang] = useState<"node" | "python" | "go">("node");
+  const { toast } = useToast();
 
   const syncToParent = useCallback((newStages: PipelineStage[]) => {
     setStages(newStages);
@@ -179,7 +259,66 @@ export function AggregationPipelineBuilder({ value, onChange, fields, onExecute 
     syncToParent(next);
   };
 
+  const runStagePreview = async (stageId: string, idx: number) => {
+    if (!onPreviewStage) return;
+    const activeStages = stages.slice(0, idx + 1).filter(s => s.enabled);
+    const partialPipelineStr = stagesToPipelineStr(activeStages);
+
+    setStagePreviews(prev => ({
+      ...prev,
+      [stageId]: { docs: [], loading: true }
+    }));
+
+    try {
+      const docs = await onPreviewStage(partialPipelineStr);
+      setStagePreviews(prev => ({
+        ...prev,
+        [stageId]: { docs: docs.slice(0, 5), loading: false }
+      }));
+    } catch (err: any) {
+      setStagePreviews(prev => ({
+        ...prev,
+        [stageId]: { docs: [{ error: err.message || "Failed to execute" }], loading: false }
+      }));
+    }
+  };
+
   const stageInfo = (type: string) => STAGE_TYPES.find(s => s.value === type);
+
+  const getExportPipelineText = () => {
+    return stagesToPipelineStr(stages);
+  };
+
+  const getPythonPipeline = (val: string) => {
+    try {
+      const parsed = JSON.parse(val);
+      const str = JSON.stringify(parsed, null, 4);
+      return str
+        .replace(/: true/g, ": True")
+        .replace(/: false/g, ": False")
+        .replace(/: null/g, ": None");
+    } catch {
+      return "[]";
+    }
+  };
+
+  const getGoPipeline = (val: string) => {
+    return `pipeline := mongo.Pipeline{\n    // ExtJSON pipeline array\n    ${val.replace(/\n/g, "\n    ")}\n}`;
+  };
+
+  const getCodeSnippet = () => {
+    const rawPipeline = getExportPipelineText();
+    switch (exportLang) {
+      case "node":
+        return `const pipeline = ${rawPipeline};\n\n// Run aggregation in Node.js\nconst results = await db.collection("${collectionName}").aggregate(pipeline).toArray();\nconsole.log(results);`;
+      case "python":
+        return `pipeline = ${getPythonPipeline(rawPipeline)}\n\n# Run aggregation in Python (PyMongo)\nresults = list(db["${collectionName}"].aggregate(pipeline))\nprint(results)`;
+      case "go":
+        return `// import "go.mongodb.org/mongo-driver/mongo"\n\n${getGoPipeline(rawPipeline)}\n\n// Run aggregation in Go\ncursor, err := collection.Aggregate(context.TODO(), pipeline)\nif err != nil {\n    log.Fatal(err)\n}\ndefer cursor.Close(context.TODO())`;
+      default:
+        return "";
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -193,7 +332,14 @@ export function AggregationPipelineBuilder({ value, onChange, fields, onExecute 
             {stages.filter(s => s.enabled).length} active
           </Badge>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost" size="sm" className="h-6 text-[10px] gap-1 px-2 text-primary hover:text-primary/95 hover:bg-primary/5 border border-primary/10"
+            onClick={() => setShowExportModal(true)}
+            disabled={stages.filter(s => s.enabled).length === 0}
+          >
+            <Share2 className="w-3 h-3" /> Export Pipeline
+          </Button>
           <Button
             variant="ghost" size="sm" className="h-6 text-[10px] gap-1 px-2"
             onClick={() => setShowCode(!showCode)}
@@ -285,6 +431,30 @@ export function AggregationPipelineBuilder({ value, onChange, fields, onExecute 
 
                   {/* Stage actions */}
                   <div className="flex items-center gap-0.5">
+                    {onPreviewStage && (
+                      <Button
+                        variant="ghost" size="icon" className={`h-5 w-5 ${stagePreviews[stage.id] ? "text-primary hover:text-primary/80 bg-primary/5" : ""}`}
+                        onClick={() => {
+                          if (stagePreviews[stage.id]) {
+                            setStagePreviews(prev => {
+                              const next = { ...prev };
+                              delete next[stage.id];
+                              return next;
+                            });
+                          } else {
+                            void runStagePreview(stage.id, idx);
+                          }
+                        }}
+                        title="Preview stage output"
+                        disabled={!stage.enabled}
+                      >
+                        {stagePreviews[stage.id]?.loading ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                        ) : (
+                          <Play className="w-3 h-3" />
+                        )}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost" size="icon" className="h-5 w-5"
                       onClick={() => moveStage(stage.id, "up")} disabled={idx === 0}
@@ -325,7 +495,7 @@ export function AggregationPipelineBuilder({ value, onChange, fields, onExecute 
 
                 {/* Stage Content */}
                 {!stage.collapsed && (
-                  <div className="p-2">
+                  <div className="p-2 space-y-2">
                     <QueryEditor
                       value={stage.content}
                       onChange={v => updateStage(stage.id, { content: v || "" })}
@@ -333,6 +503,45 @@ export function AggregationPipelineBuilder({ value, onChange, fields, onExecute 
                       height="80px"
                       mode="aggregation"
                     />
+
+                    {/* Stage Preview Result */}
+                    {stagePreviews[stage.id] && (
+                      <div className="mt-2 border-t border-border/40 pt-2 px-1 pb-1">
+                        <div className="flex items-center justify-between mb-1.5 select-none">
+                          <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground">Stage Output Preview (5 docs)</span>
+                          <button
+                            type="button"
+                            className="text-[9px] text-muted-foreground hover:text-foreground hover:underline"
+                            onClick={() => {
+                              setStagePreviews(prev => {
+                                const next = { ...prev };
+                                delete next[stage.id];
+                                return next;
+                              });
+                            }}
+                          >
+                            Close Preview
+                          </button>
+                        </div>
+                        {stagePreviews[stage.id].loading ? (
+                          <div className="flex items-center justify-center py-4 text-muted-foreground text-xs gap-1.5 font-sans">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Fetching stage output...
+                          </div>
+                        ) : stagePreviews[stage.id].docs.length === 0 ? (
+                          <div className="text-center py-3 text-muted-foreground text-[11px] font-sans">
+                            No documents returned from this stage.
+                          </div>
+                        ) : (
+                          <div className="border border-border/30 rounded bg-zinc-950/40 p-2 space-y-2 max-h-48 overflow-y-auto font-mono text-[10px] scrollbar-invisible">
+                            {stagePreviews[stage.id].docs.map((doc, dIdx) => (
+                              <div key={dIdx} className="border-b border-border/10 last:border-0 pb-1.5 last:pb-0">
+                                <JsonTree data={doc} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -364,6 +573,52 @@ export function AggregationPipelineBuilder({ value, onChange, fields, onExecute 
           )}
         </div>
       )}
+
+      {/* Export Pipeline Code Modal */}
+      <Dialog open={showExportModal} onOpenChange={setShowExportModal}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Share2 className="w-5 h-5 text-primary" />
+              Export Pipeline Code
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-xs py-2">
+            <p className="text-muted-foreground text-[11px]">
+              Copy the aggregation pipeline formatted for your target programming language driver.
+            </p>
+            <Tabs value={exportLang} onValueChange={(v) => setExportLang(v as any)}>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="node">Node.js</TabsTrigger>
+                <TabsTrigger value="python">Python (PyMongo)</TabsTrigger>
+                <TabsTrigger value="go">Go Driver</TabsTrigger>
+              </TabsList>
+              <div className="mt-3 relative">
+                <pre className="p-4 rounded-lg bg-zinc-950 text-emerald-400 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap break-all select-all pr-12 border border-border max-h-72 overflow-y-auto">
+                  {getCodeSnippet()}
+                </pre>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="absolute right-2 top-2 h-8 w-8 p-0 opacity-80 hover:opacity-100 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getCodeSnippet());
+                    toast({ title: "Pipeline snippet copied!" });
+                  }}
+                  title="Copy code snippet"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            </Tabs>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowExportModal(false)} className="h-8 text-xs">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
