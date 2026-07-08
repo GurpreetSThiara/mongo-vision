@@ -412,6 +412,14 @@ export default function Explorer() {
   const [aggregatePipeline, setAggregatePipeline] = useState('[\n  { "$match": {} }\n]');
   const [newIndexKeys, setNewIndexKeys] = useState('');
   const [newIndexUnique, setNewIndexUnique] = useState(false);
+  const [newIndexSparse, setNewIndexSparse] = useState(false);
+  const [newIndexTTL, setNewIndexTTL] = useState(false);
+  const [newIndexTTLExpires, setNewIndexTTLExpires] = useState("3600");
+  const [newIndexName, setNewIndexName] = useState("");
+  const [newIndexAdvancedJSON, setNewIndexAdvancedJSON] = useState("");
+  const [showAdvancedIndex, setShowAdvancedIndex] = useState(false);
+  const [indexKeysBuilder, setIndexKeysBuilder] = useState<{ field: string; type: "1" | "-1" | "2dsphere" | "text" }[]>([{ field: "", type: "1" }]);
+  const [indexBuildMode, setIndexBuildMode] = useState<"visual" | "json">("visual");
   const [showIndexModal, setShowIndexModal] = useState(false);
   const [explainResult, setExplainResult] = useState<Record<string, unknown> | null>(null);
   const [chartXField, setChartXField] = useState("");
@@ -1115,12 +1123,52 @@ export default function Explorer() {
 
   const handleCreateIndex = async () => {
     try {
-      const keys = JSON.parse(newIndexKeys);
+      let keys: Record<string, any> = {};
+      if (indexBuildMode === "visual") {
+        indexKeysBuilder.forEach((item) => {
+          if (item.field) {
+            keys[item.field] = item.type === "1" || item.type === "-1" ? Number(item.type) : item.type;
+          }
+        });
+        if (Object.keys(keys).length === 0) {
+          throw new Error("You must select at least one field for the index.");
+        }
+      } else {
+        keys = JSON.parse(newIndexKeys);
+      }
+
+      const options: Record<string, any> = {};
+      if (newIndexName.trim()) options.name = newIndexName.trim();
+      if (newIndexUnique) options.unique = true;
+      if (newIndexSparse) options.sparse = true;
+      if (newIndexTTL && newIndexTTLExpires) options.expireAfterSeconds = Number(newIndexTTLExpires);
+
+      if (showAdvancedIndex && newIndexAdvancedJSON.trim()) {
+        try {
+          const adv = JSON.parse(newIndexAdvancedJSON);
+          Object.assign(options, adv);
+        } catch {
+          throw new Error("Invalid Advanced JSON options.");
+        }
+      }
+
       await createIndex.mutateAsync({
         connectionId, dbName: database, collectionName: collection,
-        data: { keys, options: { unique: newIndexUnique } }
+        data: { keys, options }
       });
       queryClient.invalidateQueries({ queryKey: getListIndexesQueryKey(connectionId, database, collection) });
+
+      // Reset Modal inputs
+      setIndexKeysBuilder([{ field: "", type: "1" }]);
+      setNewIndexKeys("");
+      setNewIndexName("");
+      setNewIndexUnique(false);
+      setNewIndexSparse(false);
+      setNewIndexTTL(false);
+      setNewIndexTTLExpires("3600");
+      setNewIndexAdvancedJSON("");
+      setShowAdvancedIndex(false);
+
       setShowIndexModal(false);
       toast({ title: "Index created" });
     } catch (err: any) {
@@ -2839,23 +2887,197 @@ export default function Explorer() {
 
       {/* Create Index Modal */}
       <Dialog open={showIndexModal} onOpenChange={setShowIndexModal}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Index</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5 text-primary" />
+              Create Index
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-muted-foreground">Keys (JSON)</label>
-              <Textarea value={newIndexKeys} onChange={e => setNewIndexKeys(e.target.value)} placeholder='{ "field": 1 }' className="font-mono text-xs h-20 mt-1" />
+          <div className="space-y-4 text-xs">
+            {/* Index Name */}
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Custom Index Name (Optional)</label>
+              <Input
+                value={newIndexName}
+                onChange={e => setNewIndexName(e.target.value)}
+                placeholder="e.g. user_age_idx"
+                className="h-8 text-xs font-mono"
+              />
             </div>
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="unique-idx" checked={newIndexUnique} onChange={e => setNewIndexUnique(e.target.checked)} />
-              <label htmlFor="unique-idx" className="text-sm">Unique</label>
+
+            {/* Build Mode Selector */}
+            <Tabs value={indexBuildMode} onValueChange={v => setIndexBuildMode(v as "visual" | "json")}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="visual" className="text-[10px] h-7">Visual Builder</TabsTrigger>
+                <TabsTrigger value="json" className="text-[10px] h-7">Raw JSON</TabsTrigger>
+              </TabsList>
+              
+              <div className="mt-3">
+                {indexBuildMode === "visual" ? (
+                  /* Visual Builder Keys List */
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {indexKeysBuilder.map((item, keyIdx) => (
+                      <div key={keyIdx} className="flex items-center gap-2">
+                        {/* Field Selector */}
+                        <Select
+                          value={item.field}
+                          onValueChange={(val) => {
+                            const next = [...indexKeysBuilder];
+                            next[keyIdx].field = val;
+                            setIndexKeysBuilder(next);
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs flex-1 font-mono">
+                            <SelectValue placeholder="Select Field" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {schemaData?.fields?.map((f: any) => (
+                              <SelectItem key={f.path} value={f.path} className="font-mono text-xs">
+                                {f.path}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        {/* Index Type Selection */}
+                        <Select
+                          value={item.type}
+                          onValueChange={(val) => {
+                            const next = [...indexKeysBuilder];
+                            next[keyIdx].type = val as any;
+                            setIndexKeysBuilder(next);
+                          }}
+                        >
+                          <SelectTrigger className="h-8 text-xs w-36 font-mono">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1" className="font-mono text-xs">Ascending (1)</SelectItem>
+                            <SelectItem value="-1" className="font-mono text-xs">Descending (-1)</SelectItem>
+                            <SelectItem value="text" className="font-mono text-xs">Text</SelectItem>
+                            <SelectItem value="2dsphere" className="font-mono text-xs">Geospatial (2dsphere)</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        {/* Remove Key Row Button */}
+                        {indexKeysBuilder.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                            onClick={() => {
+                              setIndexKeysBuilder(indexKeysBuilder.filter((_, idx) => idx !== keyIdx));
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1 font-mono w-full"
+                      onClick={() => setIndexKeysBuilder([...indexKeysBuilder, { field: "", type: "1" }])}
+                    >
+                      <Plus className="w-3 h-3" /> Add Index Key Row
+                    </Button>
+                  </div>
+                ) : (
+                  /* Raw JSON Box Editor */
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Index Keys Spec (JSON)</label>
+                    <Textarea
+                      value={newIndexKeys}
+                      onChange={e => setNewIndexKeys(e.target.value)}
+                      placeholder='{ "field": 1, "anotherField": -1 }'
+                      className="font-mono text-xs h-24 mt-1"
+                    />
+                  </div>
+                )}
+              </div>
+            </Tabs>
+
+            {/* Standard Config Checkboxes */}
+            <div className="grid grid-cols-2 gap-2 bg-muted/20 p-2.5 rounded-lg border border-border/40 text-xs">
+              <div className="flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  id="unique-idx"
+                  checked={newIndexUnique}
+                  onChange={e => setNewIndexUnique(e.target.checked)}
+                  className="rounded border-zinc-700 bg-zinc-900 accent-primary"
+                />
+                <label htmlFor="unique-idx" className="cursor-pointer text-muted-foreground hover:text-foreground">Unique Index</label>
+              </div>
+
+              <div className="flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  id="sparse-idx"
+                  checked={newIndexSparse}
+                  onChange={e => setNewIndexSparse(e.target.checked)}
+                  className="rounded border-zinc-700 bg-zinc-900 accent-primary"
+                />
+                <label htmlFor="sparse-idx" className="cursor-pointer text-muted-foreground hover:text-foreground">Sparse Index</label>
+              </div>
+            </div>
+
+            {/* TTL Expire Duration Configuration */}
+            <div className="border border-border/40 p-2.5 rounded-lg space-y-2 text-xs">
+              <div className="flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  id="ttl-idx"
+                  checked={newIndexTTL}
+                  onChange={e => setNewIndexTTL(e.target.checked)}
+                  className="rounded border-zinc-700 bg-zinc-900 accent-primary"
+                />
+                <label htmlFor="ttl-idx" className="cursor-pointer text-muted-foreground hover:text-foreground">TTL Index (Expire documents)</label>
+              </div>
+              {newIndexTTL && (
+                <div className="flex items-center gap-2 pl-6 animate-fadeIn">
+                  <span className="text-[10px] text-muted-foreground font-mono">Expire after:</span>
+                  <Input
+                    type="number"
+                    value={newIndexTTLExpires}
+                    onChange={e => setNewIndexTTLExpires(e.target.value)}
+                    className="h-7 text-xs w-24 font-mono text-center"
+                  />
+                  <span className="text-[10px] text-muted-foreground font-mono">seconds</span>
+                </div>
+              )}
+            </div>
+
+            {/* Advanced Settings Collapsible Block */}
+            <div className="space-y-1.5 border border-border/30 rounded-lg p-2.5 text-xs bg-muted/10">
+              <button
+                type="button"
+                className="flex items-center justify-between w-full text-muted-foreground hover:text-foreground font-semibold text-[10px] uppercase tracking-wider"
+                onClick={() => setShowAdvancedIndex(!showAdvancedIndex)}
+              >
+                <span>Advanced Options JSON</span>
+                {showAdvancedIndex ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              </button>
+              {showAdvancedIndex && (
+                <div className="mt-2 space-y-1">
+                  <Textarea
+                    value={newIndexAdvancedJSON}
+                    onChange={e => setNewIndexAdvancedJSON(e.target.value)}
+                    placeholder='{ "collation": { "locale": "en", "strength": 2 } }'
+                    className="font-mono text-xs h-16"
+                  />
+                  <p className="text-[9px] text-muted-foreground">Collation parameters or partialFilterExpressions in valid JSON.</p>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowIndexModal(false)}>Cancel</Button>
-            <Button onClick={handleCreateIndex} disabled={createIndex.isPending}>
+            <Button variant="outline" onClick={() => setShowIndexModal(false)} className="h-8 text-xs">Cancel</Button>
+            <Button onClick={handleCreateIndex} disabled={createIndex.isPending} className="h-8 text-xs">
               {createIndex.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create"}
             </Button>
           </DialogFooter>
