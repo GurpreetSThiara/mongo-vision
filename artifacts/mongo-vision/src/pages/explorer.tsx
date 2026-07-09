@@ -68,6 +68,7 @@ import { DocumentsJsonView } from "@/components/DocumentsJsonView";
 import { DocumentsCardView } from "@/components/DocumentsCardView";
 import { DocumentJsonModal } from "@/components/DocumentJsonModal";
 import { ServerPerformanceDashboard } from "@/components/ServerPerformanceDashboard";
+import { DatabaseERD } from "@/components/DatabaseERD";
 import { MonacoJsonEditor } from "@/components/MonacoJsonEditor";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { mongoshDocumentToObject } from "@/lib/mongoshQuery";
@@ -1611,7 +1612,9 @@ export default function Explorer() {
         </div>
 
         {!collection ? (
-          connectionId ? (
+          database ? (
+            <DatabaseERD connectionId={connectionId} database={database} />
+          ) : connectionId ? (
             <ServerPerformanceDashboard connectionId={connectionId} />
           ) : (
             <div className="flex-1 flex items-center justify-center">

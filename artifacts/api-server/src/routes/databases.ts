@@ -90,4 +90,61 @@ router.delete("/connections/:connectionId/databases/:dbName", async (req, res) =
   }
 });
 
+router.get("/connections/:connectionId/databases/:dbName/schema-links", async (req, res) => {
+  const { connectionId, dbName } = req.params;
+  const session = getSession(connectionId);
+  if (!session) {
+    res.status(404).json({ error: "not_found", message: "Connection not found" });
+    return;
+  }
+
+  try {
+    const db = session.client.db(dbName);
+    const collections = await db.listCollections().toArray();
+
+    const result = await Promise.all(
+      collections.map(async (colInfo) => {
+        try {
+          const col = db.collection(colInfo.name);
+          const sampleDoc = await col.findOne();
+          const fields: { name: string; type: string }[] = [];
+
+          if (sampleDoc) {
+            Object.entries(sampleDoc).forEach(([key, val]) => {
+              let t: string = typeof val;
+              if (val === null) t = "null";
+              else if (val instanceof Date) t = "date";
+              else if (typeof val === "object" && (val as any)._bsontype === "ObjectID") t = "objectId";
+              else if (typeof val === "object" && (val as any)._bsontype) t = (val as any)._bsontype.toLowerCase();
+              else if (Array.isArray(val)) t = "array";
+              else if (typeof val === "object") t = "object";
+
+              // Capitalize
+              const typeName = t.charAt(0).toUpperCase() + t.slice(1);
+              fields.push({ name: key, type: typeName });
+            });
+          } else {
+            fields.push({ name: "_id", type: "ObjectId" });
+          }
+
+          return {
+            name: colInfo.name,
+            fields,
+          };
+        } catch {
+          return {
+            name: colInfo.name,
+            fields: [{ name: "_id", type: "ObjectId" }],
+          };
+        }
+      })
+    );
+
+    res.json({ collections: result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to get schema links";
+    res.status(500).json({ error: "server_error", message });
+  }
+});
+
 export default router;
