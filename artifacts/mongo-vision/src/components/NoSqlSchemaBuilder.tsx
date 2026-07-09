@@ -312,6 +312,27 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     if (selectedCol === colName) setSelectedCol(null);
   };
 
+  const handleAddCollection = () => {
+    const name = `collection_${collections.length + 1}`;
+    const newCol: CollectionEntity = {
+      name,
+      documentCount: 0,
+      color: "#3b82f6",
+      fields: [
+        { name: "_id", type: "ObjectId" },
+        { name: "name", type: "String" },
+      ],
+      validationRules: {},
+      indexes: [{ name: "_id_", keys: { _id: 1 } }],
+      stats: {},
+    };
+    setCollections((prev) => [...prev, newCol]);
+    setPositions((prev) => ({
+      ...prev,
+      [name]: { x: (100 - pan.x) / zoom, y: (100 - pan.y) / zoom },
+    }));
+  };
+
   const startDrawingLink = (colName: string, fieldName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!canvasRef.current) return;
@@ -670,7 +691,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
           )}
         </div>
 
-        <div className="p-3 border-t border-border/40 shrink-0">
+        <div className="p-3 border-t border-border/40 shrink-0 relative group">
           <Button
             onClick={() => {
               setShowAiCommand(true);
@@ -680,6 +701,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
           >
             <Sparkles className="w-3.5 h-3.5" /> AI Command Bar
           </Button>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 w-52 p-2 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+            Open AI Prompt: Generate collections, add validations, or suggest indexes
+          </div>
         </div>
       </div>
 
@@ -688,44 +712,84 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         {/* Canvas Toolbar controls overlay */}
         <div className="absolute top-4 left-4 z-30 flex items-center bg-zinc-900/90 border border-border/80 rounded-lg p-1.5 shadow-lg gap-2 text-xs backdrop-blur">
           <span className="font-mono text-[10px] font-bold text-muted-foreground border-r border-border/40 pr-2 mr-1">Workspace</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}
-            title="Zoom Out"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </Button>
+          
+          <div className="relative group flex items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </Button>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-32 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+              Zoom out canvas (min 30%)
+            </div>
+          </div>
+
           <span className="text-[9px] font-mono w-10 text-center font-bold text-muted-foreground">
             {Math.round(zoom * 100)}%
           </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
-            title="Zoom In"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </Button>
+
+          <div className="relative group flex items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+              title="Zoom In"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </Button>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-32 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+              Zoom in canvas (max 200%)
+            </div>
+          </div>
+
           <div className="h-4 w-[1px] bg-border/40 mx-1" />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => triggerLayout("grid")}
-            className="h-6 text-[10px] font-mono px-2"
-          >
-            Grid Align
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => triggerLayout("force")}
-            className="h-6 text-[10px] font-mono px-2"
-          >
-            Spring Layout
-          </Button>
+
+          <div className="relative group flex items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => triggerLayout("grid")}
+              className="h-6 text-[10px] font-mono px-2"
+            >
+              Grid Align
+            </Button>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-44 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+              Aligns collections into a clean uniform layout grid
+            </div>
+          </div>
+
+          <div className="relative group flex items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => triggerLayout("force")}
+              className="h-6 text-[10px] font-mono px-2"
+            >
+              Spring Layout
+            </Button>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-48 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+              Runs a physics-based spring repulsion simulation to separate cards
+            </div>
+          </div>
+
+          <div className="h-4 w-[1px] bg-border/40 mx-1" />
+
+          <div className="relative group flex items-center">
+            <Button
+              onClick={handleAddCollection}
+              className="h-6 text-[10px] font-mono px-2 bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" /> Create Entity
+            </Button>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-48 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+              Creates a new collection card template on the active workspace
+            </div>
+          </div>
         </div>
 
         {/* Real Canvas workspace container */}
