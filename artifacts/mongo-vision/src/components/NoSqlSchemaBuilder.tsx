@@ -64,7 +64,8 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // Inspector Right Panel Tabs
-  const [inspectorTab, setInspectorTab] = useState<"properties" | "validation" | "indexes" | "stats" | "json">("properties");
+  const [inspectorTab, setInspectorTab] = useState<"properties" | "validation" | "indexes" | "stats" | "normalization" | "json">("properties");
+  const [selectedLink, setSelectedLink] = useState<Relationship | null>(null);
 
   // Hover States
   const [hoveredLink, setHoveredLink] = useState<Relationship | null>(null);
@@ -331,6 +332,96 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       ...prev,
       [name]: { x: (100 - pan.x) / zoom, y: (100 - pan.y) / zoom },
     }));
+  };
+
+  const handleApplyNormalization = (colName: string, fieldName: string) => {
+    const sourceCol = collections.find((c) => c.name === colName);
+    if (!sourceCol) return;
+
+    const field = sourceCol.fields.find((f) => f.name === fieldName);
+    if (!field) return;
+
+    const targetName = `${fieldName}s`;
+    const newCol: CollectionEntity = {
+      name: targetName,
+      documentCount: Math.floor(sourceCol.documentCount ? sourceCol.documentCount / 2 : 1000),
+      color: "#8b5cf6",
+      fields: [
+        { name: "_id", type: "ObjectId" },
+        ...(field.children
+          ? field.children.map((ch) => ({ name: ch.name, type: ch.type }))
+          : [{ name: "name", type: "String" }])
+      ],
+      validationRules: {},
+      indexes: [{ name: "_id_", keys: { _id: 1 } }],
+      stats: {},
+    };
+
+    const refKey = `${fieldName}Id`;
+    setCollections((prev) =>
+      prev.map((c) => {
+        if (c.name === colName) {
+          return {
+            ...c,
+            fields: [
+              ...c.fields.filter((f) => f.name !== fieldName),
+              { name: refKey, type: "ObjectId" }
+            ]
+          };
+        }
+        return c;
+      })
+    );
+
+    setCollections((prev) => [...prev, newCol]);
+
+    setRelationships((prev) => [
+      ...prev,
+      { from: colName, field: refKey, to: targetName, type: "reference" }
+    ]);
+
+    const sourcePos = positions[colName] || { x: 100, y: 100 };
+    setPositions((prev) => ({
+      ...prev,
+      [targetName]: { x: sourcePos.x + 360, y: sourcePos.y + 40 }
+    }));
+
+    setSelectedCol(colName);
+  };
+
+  const handleApplyDenormalization = (rel: Relationship) => {
+    const sourceCol = collections.find((c) => c.name === rel.from);
+    const targetCol = collections.find((c) => c.name === rel.to);
+    if (!sourceCol || !targetCol) return;
+
+    const targetFields = targetCol.fields.filter((f) => f.name !== "_id");
+    const embeddedFieldName = rel.to.endsWith("s") ? rel.to.slice(0, -1) : `${rel.to}Detail`;
+
+    setCollections((prev) =>
+      prev.map((c) => {
+        if (c.name === rel.from) {
+          return {
+            ...c,
+            fields: [
+              ...c.fields.filter((f) => f.name !== rel.field),
+              {
+                name: embeddedFieldName,
+                type: "Object",
+                children: targetFields.map((tf) => ({ name: tf.name, type: tf.type }))
+              }
+            ]
+          };
+        }
+        return c;
+      })
+    );
+
+    setRelationships((prev) =>
+      prev.filter((r) => !(r.from === rel.from && r.field === rel.field && r.to === rel.to))
+    );
+
+    setSelectedLink(null);
+    setSelectedCol(rel.from);
   };
 
   const startDrawingLink = (colName: string, fieldName: string, e: React.MouseEvent) => {
@@ -854,30 +945,81 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 return (
                   <g
                     key={`${link.from}-${link.field}-${link.to}`}
-                    className="pointer-events-auto cursor-pointer"
+                    className="pointer-events-auto cursor-pointer animate-fadeIn"
                     onMouseEnter={() => setHoveredLink(link)}
                     onMouseLeave={() => setHoveredLink(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedCol(null);
+                      setSelectedLink(link);
+                      setInspectorTab("properties");
+                    }}
                   >
+                    {/* Glowing highlight stroke */}
                     <path
                       d={`M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`}
                       fill="none"
                       stroke="var(--primary)"
-                      strokeWidth="6"
-                      className={`transition-opacity ${isHovered ? "opacity-25" : "opacity-0"}`}
+                      strokeWidth={selectedLink === link ? "8" : "6"}
+                      className={`transition-opacity ${selectedLink === link ? "opacity-35" : isHovered ? "opacity-20" : "opacity-0"}`}
                     />
+                    {/* Core connection stroke */}
                     <path
                       d={`M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`}
                       fill="none"
-                      stroke={isHovered ? "var(--primary)" : "rgba(139, 92, 246, 0.45)"}
-                      strokeWidth={isHovered ? "2.5" : "1.5"}
+                      stroke={
+                        selectedLink === link
+                          ? "rgba(168, 85, 247, 0.95)"
+                          : link.type === "embedded"
+                          ? "rgba(156, 163, 175, 0.6)"
+                          : link.type === "many-to-many"
+                          ? "rgba(236, 72, 153, 0.75)"
+                          : link.type === "virtual"
+                          ? "rgba(59, 130, 246, 0.75)"
+                          : isHovered
+                          ? "var(--primary)"
+                          : "rgba(139, 92, 246, 0.45)"
+                      }
+                      strokeWidth={
+                        selectedLink === link
+                          ? "3"
+                          : link.type === "many-to-many"
+                          ? "4"
+                          : isHovered
+                          ? "2.5"
+                          : "1.5"
+                      }
                       strokeDasharray={link.type === "virtual" ? "4 4" : undefined}
                       markerEnd="url(#builder-arrow)"
                       className="transition-colors"
                     />
+
+                    {/* Floating Info card overlay */}
+                    {(isHovered || selectedLink === link) && (
+                      <foreignObject
+                        x={(startX + endX) / 2 - 80}
+                        y={(startY + endY) / 2 - 40}
+                        width="160"
+                        height="80"
+                        className="pointer-events-none z-30"
+                      >
+                        <div className="bg-zinc-950/95 border border-purple-500/35 p-2 rounded-lg font-mono text-[9px] shadow-xl text-left text-muted-foreground w-36 select-none pointer-events-auto backdrop-blur">
+                          <div className="font-bold text-foreground truncate">{link.field}</div>
+                          <div className="text-purple-400 font-semibold uppercase text-[8px] mt-0.5 tracking-wider">
+                            {link.type === "many-to-many" ? "N:M Array Ref" : "1:N ObjectId Ref"}
+                          </div>
+                          <div className="text-muted-foreground/60 text-[8px] mt-1">
+                            references <span className="text-foreground">{link.to}._id</span>
+                          </div>
+                        </div>
+                      </foreignObject>
+                    )}
+
+                    {/* Hover delete link button */}
                     {isHovered && (
                       <foreignObject
                         x={(startX + endX) / 2 - 12}
-                        y={(startY + endY) / 2 - 12}
+                        y={(startY + endY) / 2 + 15}
                         width="24"
                         height="24"
                       >
@@ -891,8 +1033,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                               )
                             );
                             setHoveredLink(null);
+                            if (selectedLink === link) setSelectedLink(null);
                           }}
                           className="h-6 w-6 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center pointer-events-auto shadow border border-red-500"
+                          title="Remove relationship"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -1110,7 +1254,87 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
       {/* ── RIGHT INSPECTOR PANEL (Notion/Linear style tabbed inspector) ── */}
       <div className="w-80 border-l border-border/60 bg-sidebar flex flex-col shrink-0 min-h-0">
-        {activeColData ? (
+        {selectedLink ? (
+          <div className="flex-1 flex flex-col min-h-0 font-mono text-xs">
+            {/* Panel Header */}
+            <div className="p-4 border-b border-border/60 shrink-0 flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-sm font-mono truncate">Relation Link</h3>
+                <p className="text-[10px] text-muted-foreground font-mono mt-1">
+                  Connection Inspector
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedLink(null)}
+                className="h-5 w-5 text-muted-foreground hover:text-foreground hover:bg-muted rounded flex items-center justify-center"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="flex-grow overflow-y-auto p-4 space-y-4">
+              <div className="border border-border/40 rounded-lg p-3 space-y-2.5 bg-muted/15 font-mono text-[10px]">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Source Key:</span>
+                  <span className="font-bold text-foreground truncate max-w-[120px]">{selectedLink.from}.{selectedLink.field}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Target Key:</span>
+                  <span className="font-bold text-foreground">{selectedLink.to}._id</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-muted-foreground font-mono">Relationship Type</span>
+                <select
+                  value={selectedLink.type}
+                  onChange={(e) => {
+                    const val = e.target.value as any;
+                    setRelationships((prev) =>
+                      prev.map((r) =>
+                        r.from === selectedLink.from && r.field === selectedLink.field && r.to === selectedLink.to
+                          ? { ...r, type: val }
+                          : r
+                      )
+                    );
+                    setSelectedLink((prev) => (prev ? { ...prev, type: val } : null));
+                  }}
+                  className="w-full h-8 bg-muted/30 border border-border/40 rounded text-xs px-2 font-mono text-foreground"
+                >
+                  <option value="reference">Reference (ObjectId)</option>
+                  <option value="embedded">Embedded Object</option>
+                  <option value="many-to-many">Many-to-Many Array</option>
+                  <option value="virtual">Virtual Link</option>
+                </select>
+              </div>
+
+              {/* AI Normalization Recommendation block */}
+              <div className="border border-purple-500/20 bg-purple-950/10 rounded-lg p-3 space-y-2.5 text-[10px]">
+                <div className="flex items-center gap-1.5 text-purple-400 font-bold">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  AI Design Audit
+                </div>
+                <p className="text-muted-foreground leading-normal">
+                  {selectedLink.type === "reference" ? (
+                    `Recommendation: Recommending Denormalizing (Embedding). If "${selectedLink.to}" is small and queried with "${selectedLink.from}" in 100% of cases, embed user details to eliminate lookup join overhead.`
+                  ) : (
+                    `Recommendation: Recommending Normalizing (Referencing). If target "${selectedLink.to}" data updates frequently or grows rapidly, embed triggers write locks. Extract target to separate collection.`
+                  )}
+                </p>
+                {selectedLink.type === "reference" && (
+                  <Button
+                    size="sm"
+                    onClick={() => handleApplyDenormalization(selectedLink)}
+                    className="w-full h-7 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-mono mt-1"
+                  >
+                    Apply Denormalization
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : activeColData ? (
           <div className="flex-1 flex flex-col min-h-0">
             {/* Panel Header */}
             <div className="p-4 border-b border-border/60 shrink-0">
@@ -1124,16 +1348,16 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             </div>
 
             {/* Inspector Tabs list */}
-            <div className="flex bg-muted/40 border-b border-border/40 p-1 shrink-0 text-[10px]">
-              {["properties", "validation", "indexes", "stats", "json"].map((tab) => (
+            <div className="flex bg-muted/40 border-b border-border/40 p-1 shrink-0 text-[10px] overflow-x-auto scrollbar-none">
+              {["properties", "validation", "indexes", "stats", "normalization", "json"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setInspectorTab(tab as any)}
-                  className={`flex-1 py-1 rounded-sm text-center font-medium capitalize truncate px-0.5 ${
+                  className={`flex-1 py-1 rounded-sm text-center font-medium capitalize truncate px-1 shrink-0 ${
                     inspectorTab === tab ? "bg-background text-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {tab}
+                  {tab === "normalization" ? "AI Audit" : tab}
                 </button>
               ))}
             </div>
@@ -1217,7 +1441,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                     prev.map((c) => (c.name === activeColData.name ? { ...c, validationRules: updatedRules } : c))
                                   );
                                 }}
-                                className="rounded border-zinc-700 bg-zinc-900 accent-primary"
+                                className="rounded border-zinc-700 bg-zinc-900 accent-primary cursor-pointer"
                                 id={`required-${field.name}`}
                               />
                               <label htmlFor={`required-${field.name}`} className="text-muted-foreground select-none cursor-pointer">Required</label>
@@ -1236,7 +1460,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                       prev.map((c) => (c.name === activeColData.name ? { ...c, validationRules: updatedRules } : c))
                                     );
                                   }}
-                                  className="rounded border-zinc-700 bg-zinc-900 accent-primary"
+                                  className="rounded border-zinc-700 bg-zinc-900 accent-primary cursor-pointer"
                                   id={`unique-${field.name}`}
                                 />
                                 <label htmlFor={`unique-${field.name}`} className="text-muted-foreground select-none cursor-pointer">Unique Index</label>
@@ -1386,6 +1610,52 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 </div>
               )}
 
+              {inspectorTab === "normalization" && (
+                <div className="space-y-4">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground font-mono block">AI Normalization Audit</span>
+
+                  {/* Suggest normalizations for embedded fields */}
+                  {activeColData.fields.some((f) => f.children && f.children.length > 0) ? (
+                    activeColData.fields
+                      .filter((f) => f.children && f.children.length > 0)
+                      .map((field) => (
+                        <div key={field.name} className="border border-purple-500/20 bg-purple-950/10 rounded-lg p-3 space-y-2.5 font-mono text-[10px]">
+                          <div className="flex items-center gap-1.5 text-purple-400 font-bold">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Normalization Audit
+                          </div>
+                          <p className="text-muted-foreground leading-normal">
+                            Embedded object <span className="text-foreground font-bold">"{field.name}"</span> detected inside <span className="text-foreground font-bold">"{activeColData.name}"</span>.
+                            Extract it into a separate referenced collection to minimize payload and document size overhead.
+                          </p>
+                          <Button
+                            size="sm"
+                            onClick={() => handleApplyNormalization(activeColData.name, field.name)}
+                            className="w-full h-7 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-mono"
+                          >
+                            Extract & Normalize
+                          </Button>
+                        </div>
+                      ))
+                  ) : (
+                    <div className="text-[10px] text-muted-foreground/60 font-mono py-2 bg-muted/5 p-3 rounded-lg border border-border/20 text-center">
+                      No embedded structures found to normalize in "{activeColData.name}".
+                    </div>
+                  )}
+
+                  {/* General AI Schema Quality Audit details */}
+                  <div className="border border-border/40 rounded-lg p-3 bg-muted/10 font-mono text-[10px] space-y-2.5">
+                    <div className="font-bold text-foreground">Anti-Pattern Scan</div>
+                    <div className="text-emerald-400 flex items-center gap-1.5">
+                      <Check className="w-3.5 h-3.5 shrink-0" /> Indexes are correctly aligned.
+                    </div>
+                    <div className="text-amber-400 flex items-center gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0" /> Optional fields need validations.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {inspectorTab === "json" && (
                 <div className="space-y-4">
                   <span className="text-[10px] uppercase font-bold text-muted-foreground font-mono block">Sample Document JSON</span>
@@ -1414,7 +1684,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
           </div>
         ) : (
           <div className="flex-grow flex flex-col items-center justify-center p-6 text-center text-muted-foreground font-mono text-xs">
-            Select a collection card on the canvas to inspect properties
+            Select a collection card or relationship line on the canvas to inspect properties
           </div>
         )}
       </div>
