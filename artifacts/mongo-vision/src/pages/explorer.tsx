@@ -68,7 +68,7 @@ import { DocumentsJsonView } from "@/components/DocumentsJsonView";
 import { DocumentsCardView } from "@/components/DocumentsCardView";
 import { DocumentJsonModal } from "@/components/DocumentJsonModal";
 import { ServerPerformanceDashboard } from "@/components/ServerPerformanceDashboard";
-import { DatabaseERD } from "@/components/DatabaseERD";
+import { NoSqlSchemaBuilder } from "@/components/NoSqlSchemaBuilder";
 import { MonacoJsonEditor } from "@/components/MonacoJsonEditor";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { mongoshDocumentToObject } from "@/lib/mongoshQuery";
@@ -1613,7 +1613,7 @@ export default function Explorer() {
 
         {!collection ? (
           database ? (
-            <DatabaseERD connectionId={connectionId} database={database} />
+            <NoSqlSchemaBuilder connectionId={connectionId} database={database} />
           ) : connectionId ? (
             <ServerPerformanceDashboard connectionId={connectionId} />
           ) : (
