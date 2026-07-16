@@ -35,7 +35,7 @@ export function ExplorerHeader({
   if (!collection) return null;
 
   return (
-    <div className="h-14 border-b border-border flex items-center px-4 gap-3 bg-card shrink-0 hidden md:flex">
+    <div className="h-14 border-b border-border flex items-center px-4 gap-3 bg-card shrink-0 hidden lg:flex">
       <span className="text-muted-foreground text-sm font-mono">{database}</span>
       <ChevronRight className="w-4 h-4 text-muted-foreground" />
       <span className="text-sm font-mono font-medium">{collection}</span>

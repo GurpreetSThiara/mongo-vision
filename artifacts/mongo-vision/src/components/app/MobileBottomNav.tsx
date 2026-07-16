@@ -26,7 +26,7 @@ const NAV_ITEMS: { id: MobileNavTab; icon: React.ElementType; label: string }[] 
 
 export function MobileBottomNav({ activeTab, onTabChange }: MobileBottomNavProps) {
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-card border-t border-border mobile-bottom-nav">
+    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-card border-t border-border mobile-bottom-nav">
       <div className="flex h-[var(--mobile-nav-height)] items-center justify-around px-2">
         {NAV_ITEMS.map(({ id, icon: Icon, label }) => {
           const isActive = activeTab === id;

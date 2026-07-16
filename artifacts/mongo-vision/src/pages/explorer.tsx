@@ -34,7 +34,7 @@ import {
   AlertCircle, CheckCircle, XCircle, Eye, Clock, MousePointerClick,
   Copy, Columns, LayoutGrid, Timer, Pin, ArrowLeft,
   LayoutList, FileText, Diff, X, Shield, ChevronsDownUp, Grid3x3,
-  ArrowUpToLine, ListTree, ChevronUp, Menu, MoreVertical,
+  ArrowUpToLine, ListTree, ChevronUp, Menu, MoreVertical, SlidersHorizontal,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
@@ -70,7 +70,7 @@ import { useDocumentActions } from "@/hooks/use-document-actions";
 import { useQueryActions } from "@/hooks/use-query-actions";
 import { useImportExport } from "@/hooks/use-import-export";
 import { useIndexManager } from "@/hooks/use-index-manager";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useIsMobile, useBreakpoint } from "@/hooks/use-mobile";
 import { CHART_COLORS, IMPORT_MAX_FILE_BYTES, IMPORT_PREVIEW_MAX_BYTES } from "@/constants";
 import { TOAST, TOAST_DESC, LABEL, MODAL_TITLE, CONFIRM_MSG } from "@/constants/messages";
 import { formatBytes, formatDocCount, formatPageRange, formatPayloadSize } from "@/utils/format";
@@ -283,6 +283,9 @@ export default function Explorer() {
   // ── Mobile nav tab mapping ──
   const [mobileNavTab, setMobileNavTab] = useState<MobileNavTab>("browse");
   const [mobileQueryModalOpen, setMobileQueryModalOpen] = useState(false);
+  const [mobileOptionsModalOpen, setMobileOptionsModalOpen] = useState(false);
+  const breakpoint = useBreakpoint();
+  const isMobileOrTablet = breakpoint === "mobile" || breakpoint === "tablet";
 
   // Map mobile nav tabs to explorer tab values
   const handleMobileNavChange = useCallback((tab: MobileNavTab) => {
@@ -686,7 +689,7 @@ export default function Explorer() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className={`flex h-screen w-full bg-background text-foreground overflow-hidden ${isMobile ? "flex-col" : ""}`}>
+    <div className={`flex h-screen w-full bg-background text-foreground overflow-hidden ${isMobileOrTablet ? "flex-col" : ""}`}>
 
       {/* Desktop sidebar */}
       <ExplorerSidebar {...sidebarProps} />
@@ -725,7 +728,7 @@ export default function Explorer() {
 
         {/* Desktop: state text when no collection */}
         {!collection && (
-          <div className="hidden md:flex h-14 border-b border-border items-center px-4 gap-3 bg-card shrink-0">
+          <div className="hidden lg:flex h-14 border-b border-border items-center px-4 gap-3 bg-card shrink-0">
             {database
               ? <span className="text-sm font-mono font-medium">{database} — {LABEL.SELECT_COLLECTION}</span>
               : connectionId
@@ -735,7 +738,7 @@ export default function Explorer() {
         )}
 
         {/* Content area */}
-        <div className={`flex-1 overflow-hidden ${isMobile ? "mobile-content-pb" : ""}`}>
+        <div className={`flex-1 overflow-hidden ${isMobileOrTablet ? "mobile-content-pb" : ""}`}>
           {!collection ? (
             database ? (
               <NoSqlSchemaBuilder connectionId={connectionId} database={database} />
@@ -762,63 +765,45 @@ export default function Explorer() {
               {/* DOCUMENTS */}
               <TabsContent value="documents" className="flex-1 flex flex-col overflow-hidden m-0">
                 {/* Query header */}
-                {isMobile ? (
-                  <div className="px-3 py-2 border-b border-border bg-card shrink-0 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 flex items-center gap-1.5 bg-muted/40 rounded-full px-3 py-1 border border-border/60" title="Focus: ⌘K">
-                        <Search className="w-3.5 h-3.5 text-muted-foreground" />
-                        <input
-                          data-doc-page-search
-                          type="text"
-                          value={s.localSearch}
-                          onChange={(e) => s.setLocalSearch(e.target.value)}
-                          placeholder="Search in page..."
-                          className="bg-transparent text-xs w-full outline-none placeholder:text-muted-foreground/50 py-0.5"
-                        />
-                        {s.localSearch && (
-                          <button className="text-muted-foreground hover:text-foreground" onClick={() => s.setLocalSearch("")}>
-                            <XCircle className="w-3 h-3" />
-                          </button>
-                        )}
-                      </div>
-                      <Button
-                        variant={s.filterStr !== "{}" || s.sortStr !== "{}" ? "default" : "outline"}
-                        size="sm"
-                        className="h-8 rounded-full text-xs gap-1.5 px-3"
-                        onClick={() => setMobileQueryModalOpen(true)}
-                      >
-                        <Filter className="w-3 h-3" />
-                        <span>Filter</span>
-                        {(s.filterStr !== "{}" || s.sortStr !== "{}") && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                        )}
-                      </Button>
+                {isMobileOrTablet ? (
+                  <div className="px-3 py-2.5 border-b border-border bg-card shrink-0 flex items-center gap-2">
+                    <div className="flex-1 flex items-center gap-1.5 bg-muted/40 rounded-full px-3 py-1.5 border border-border/60" title="Focus: ⌘K">
+                      <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                      <input
+                        data-doc-page-search
+                        type="text"
+                        value={s.localSearch}
+                        onChange={(e) => s.setLocalSearch(e.target.value)}
+                        placeholder="Search in page..."
+                        className="bg-transparent text-xs w-full outline-none placeholder:text-muted-foreground/50 py-0.5"
+                      />
+                      {s.localSearch && (
+                        <button className="text-muted-foreground hover:text-foreground" onClick={() => s.setLocalSearch("")}>
+                          <XCircle className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
-
-                    {/* Horizontal scrollable quick settings/stats for mobile */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-invisible py-0.5 text-[10px] text-muted-foreground">
-                      <span className="shrink-0 bg-muted/30 px-2 py-0.5 rounded border border-border/40 font-mono">
-                        {sortedVisibleDocs.length} shown
-                      </span>
-                      <button
-                        className={`shrink-0 px-2 py-0.5 rounded border border-border/40 font-mono transition-colors ${s.viewMode === "json" ? "bg-primary/10 text-primary border-primary/20" : ""}`}
-                        onClick={() => s.setViewMode("json")}
-                      >
-                        JSON View
-                      </button>
-                      <button
-                        className={`shrink-0 px-2 py-0.5 rounded border border-border/40 font-mono transition-colors ${s.viewMode === "card" ? "bg-primary/10 text-primary border-primary/20" : ""}`}
-                        onClick={() => s.setViewMode("card")}
-                      >
-                        Card View
-                      </button>
-                      <button
-                        className="shrink-0 px-2 py-0.5 rounded border border-border/40 font-mono text-rose-500 hover:bg-rose-500/5 transition-colors"
-                        onClick={handleResetAll}
-                      >
-                        Reset All
-                      </button>
-                    </div>
+                    <Button
+                      variant={s.filterStr !== "{}" || s.sortStr !== "{}" ? "default" : "outline"}
+                      size="sm"
+                      className="h-8 rounded-full text-xs gap-1.5 px-3 shrink-0"
+                      onClick={() => setMobileQueryModalOpen(true)}
+                    >
+                      <Filter className="w-3 h-3" />
+                      <span>Filter</span>
+                      {(s.filterStr !== "{}" || s.sortStr !== "{}") && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-full text-xs gap-1.5 px-3 shrink-0"
+                      onClick={() => setMobileOptionsModalOpen(true)}
+                    >
+                      <SlidersHorizontal className="w-3 h-3" />
+                      <span>Options</span>
+                    </Button>
                   </div>
                 ) : (
                   <div className="px-4 py-2 border-b border-border bg-card shrink-0 space-y-0">
@@ -924,7 +909,7 @@ export default function Explorer() {
                 )}
 
                 {/* Feature toolbar (desktop only) */}
-                {!isMobile && (
+                {!isMobileOrTablet && (
                   <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/50 bg-muted/20 shrink-0 flex-wrap">
                     <div className="flex items-center rounded-md border border-border/40 overflow-hidden">
                       <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "json" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("json")} title={LABEL.VIEW_JSON}><FileJson className="w-3 h-3" /></button>
@@ -1667,8 +1652,165 @@ export default function Explorer() {
         </DialogContent>
       </Dialog>
 
+      {/* Mobile/Tablet Options Dialog */}
+      <Dialog open={mobileOptionsModalOpen} onOpenChange={setMobileOptionsModalOpen}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>View Options & Tools</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-xs">
+            {/* View Mode */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Display View</span>
+              <div className="flex items-center rounded-md border border-border/50 overflow-hidden w-full bg-muted/40">
+                <button
+                  type="button"
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => s.setViewMode("json")}
+                >
+                  JSON
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "card" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => s.setViewMode("card")}
+                >
+                  Cards
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "spreadsheet" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => s.setViewMode("spreadsheet")}
+                >
+                  Spreadsheet
+                </button>
+              </div>
+            </div>
+
+            {/* Compare Mode */}
+            <div className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-muted/15">
+              <div>
+                <p className="font-semibold text-xs">Compare Mode</p>
+                <p className="text-[9px] text-muted-foreground">Select two documents to compare differences</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={s.compareMode}
+                onChange={(e) => {
+                  s.setCompareMode(e.target.checked);
+                  s.setCompareDocs([]);
+                }}
+                className="rounded accent-primary w-4 h-4 cursor-pointer"
+              />
+            </div>
+
+            {/* Pagination limit */}
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-xs">Documents Per Page</span>
+              <Select
+                value={String(s.limit)}
+                onValueChange={(v) => {
+                  s.setLimit(Number(v));
+                  s.setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs w-28"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[10, 20, 50, 100, 200, 500].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Auto Refresh */}
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-xs">Auto Refresh Interval</span>
+              <select
+                value={s.autoRefreshInterval}
+                onChange={(e) => s.setAutoRefreshInterval(Number(e.target.value))}
+                className="bg-card text-xs text-foreground border border-border/80 rounded px-2.5 py-1.5 outline-none cursor-pointer w-28"
+              >
+                <option value={0}>Off</option>
+                <option value={5}>5 seconds</option>
+                <option value={10}>10 seconds</option>
+                <option value={30}>30 seconds</option>
+                <option value={60}>60 seconds</option>
+              </select>
+            </div>
+
+            {/* Columns manager */}
+            <div className="space-y-2 border-t border-border/40 pt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Visible Columns</span>
+                {s.hiddenColumns.size > 0 && (
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px] text-primary" onClick={() => s.setHiddenColumns(new Set())}>
+                    Show All
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {allFields.map((f) => (
+                  <label key={f} className="flex items-center gap-2 py-0.5 text-xs cursor-pointer hover:bg-muted/30 px-1 rounded truncate">
+                    <input
+                      type="checkbox"
+                      className="rounded w-3.5 h-3.5 accent-primary"
+                      checked={!s.hiddenColumns.has(f)}
+                      onChange={(e) => s.setHiddenColumns((prev) => {
+                        const next = new Set(prev);
+                        e.target.checked ? next.delete(f) : next.add(f);
+                        return next;
+                      })}
+                    />
+                    <span className="font-mono text-[11px] truncate">{f}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Data Tools */}
+            <div className="space-y-2 border-t border-border/40 pt-3">
+              <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Tools & Actions</span>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-xs justify-center"
+                  onClick={() => {
+                    setMobileOptionsModalOpen(false);
+                    importExport.exportVisibleDocumentsJson();
+                  }}
+                  disabled={sortedVisibleDocs.length === 0}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {LABEL.EXPORT}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-xs justify-center"
+                  onClick={() => {
+                    setMobileOptionsModalOpen(false);
+                    importExport.copyVisibleDocumentIds();
+                  }}
+                  disabled={sortedVisibleDocs.length === 0}
+                >
+                  <ListTree className="w-3.5 h-3.5" />
+                  Copy IDs
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button className="w-full h-9 rounded-lg" onClick={() => setMobileOptionsModalOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Mobile Floating Bulk Action Bar */}
-      {isMobile && s.selectedDocs.size > 0 && (
+      {isMobileOrTablet && s.selectedDocs.size > 0 && (
         <div
           className="fixed bottom-[calc(var(--mobile-nav-height)+var(--safe-area-bottom)+12px)] left-4 right-4 z-40 bg-card/95 backdrop-blur-md border border-border/80 rounded-full shadow-2xl p-2.5 flex items-center justify-between animate-in slide-in-from-bottom-5 duration-300"
           style={{ bottom: "calc(56px + env(safe-area-inset-bottom, 0px) + 12px)" }}

@@ -35,7 +35,7 @@ export function MobileHeader({
   const [overflowOpen, setOverflowOpen] = useState(false);
 
   return (
-    <div className="h-12 border-b border-border flex items-center px-3 gap-2 bg-card shrink-0 md:hidden relative">
+    <div className="h-12 border-b border-border flex items-center px-3 gap-2 bg-card shrink-0 lg:hidden relative">
       {/* Hamburger */}
       <Button
         variant="ghost"

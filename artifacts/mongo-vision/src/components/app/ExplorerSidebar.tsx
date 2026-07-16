@@ -60,7 +60,7 @@ export function ExplorerSidebar({
   onDeleteSavedQuery,
 }: ExplorerSidebarProps) {
   return (
-    <div className="w-64 border-r border-border bg-sidebar flex flex-col shrink-0 hidden md:flex">
+    <div className="w-64 border-r border-border bg-sidebar flex flex-col shrink-0 hidden lg:flex">
       {/* Brand header */}
       <div className="h-16 border-b border-border flex items-center px-4 gap-2">
         <Database className="w-5 h-5 text-primary" />
