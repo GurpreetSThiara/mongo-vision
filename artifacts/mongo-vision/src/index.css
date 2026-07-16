@@ -69,6 +69,12 @@
   --app-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --app-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
   --radius: 0.5rem;
+
+  /* ── Layout tokens ─────────────────────────────────────────────────────── */
+  --mobile-nav-height: 56px;
+  --header-height: 48px;
+  --header-height-desktop: 56px;
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   
   --background: 220 20% 97%;
   --foreground: 222 47% 11%;
@@ -181,4 +187,31 @@
     width: 0;
     height: 0;
   }
+
+  /* Mobile bottom navigation */
+  .mobile-bottom-nav {
+    height: calc(var(--mobile-nav-height) + var(--safe-area-bottom));
+    padding-bottom: var(--safe-area-bottom);
+  }
+
+  /* Content padding for mobile bottom nav */
+  .mobile-content-pb {
+    padding-bottom: calc(var(--mobile-nav-height) + var(--safe-area-bottom) + 0.5rem);
+  }
+}
+
+/* ── Slide-drawer animation ──────────────────────────────────────────────── */
+@keyframes slide-in-from-left {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slide-out-to-left {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
+@keyframes fade-in-backdrop {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
