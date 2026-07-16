@@ -592,8 +592,7 @@ export default function Explorer() {
     const visibleFields = orderedFields.filter((f) => !s.hiddenColumns.has(f));
     const sortedDocs = sortedVisibleDocs;
 
-    // On mobile, hide spreadsheet and default to card
-    const effectiveViewMode = isMobile && s.viewMode === "spreadsheet" ? "card" : s.viewMode;
+    const effectiveViewMode = s.viewMode;
 
     switch (effectiveViewMode) {
       case "json":
@@ -914,9 +913,7 @@ export default function Explorer() {
                     <div className="flex items-center rounded-md border border-border/40 overflow-hidden">
                       <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "json" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("json")} title={LABEL.VIEW_JSON}><FileJson className="w-3 h-3" /></button>
                       <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "card" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("card")} title={LABEL.VIEW_CARD}><LayoutGrid className="w-3 h-3" /></button>
-                      {!isMobile && (
-                        <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "spreadsheet" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("spreadsheet")} title={LABEL.VIEW_SPREADSHEET}><Grid3x3 className="w-3 h-3" /></button>
-                      )}
+                      <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "spreadsheet" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("spreadsheet")} title={LABEL.VIEW_SPREADSHEET}><Grid3x3 className="w-3 h-3" /></button>
                     </div>
                     <div className="relative">
                       <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1" onClick={() => s.setShowColumnManager(!s.showColumnManager)}>
