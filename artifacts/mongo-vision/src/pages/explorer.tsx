@@ -282,6 +282,7 @@ export default function Explorer() {
 
   // ── Mobile nav tab mapping ──
   const [mobileNavTab, setMobileNavTab] = useState<MobileNavTab>("browse");
+  const [mobileQueryModalOpen, setMobileQueryModalOpen] = useState(false);
 
   // Map mobile nav tabs to explorer tab values
   const handleMobileNavChange = useCallback((tab: MobileNavTab) => {
@@ -761,171 +762,233 @@ export default function Explorer() {
               {/* DOCUMENTS */}
               <TabsContent value="documents" className="flex-1 flex flex-col overflow-hidden m-0">
                 {/* Query header */}
-                <div className="px-4 py-2 border-b border-border bg-card shrink-0 space-y-0">
-                  <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                    <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
-                      <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${s.docQueryMode === "visual" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocQueryMode("visual")}>
-                        <MousePointerClick className="w-2.5 h-2.5" /> {LABEL.QUERY_VISUAL}
-                      </button>
-                      <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${s.docQueryMode === "code" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocQueryMode("code")}>
-                        <Code className="w-2.5 h-2.5" /> {LABEL.QUERY_CODE}
-                      </button>
-                    </div>
-                    <div className="flex items-center rounded-md border border-border/50 overflow-hidden" title="When off, the grid updates only after Apply.">
-                      <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${s.docQueryLive ? "bg-emerald-600/90 text-white" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocQueryLive(true)}>
-                        <Zap className="w-2.5 h-2.5" /> {LABEL.QUERY_LIVE}
-                      </button>
-                      <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${!s.docQueryLive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => { s.setAppliedFilterStr(s.filterStr); s.setAppliedSortStr(s.sortStr); s.setDocQueryLive(false); }}>
-                        <Play className="w-2.5 h-2.5" /> {LABEL.QUERY_APPLY_MODE}
-                      </button>
-                    </div>
-                    <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground" onClick={() => s.setDocQueryVisible(!s.docQueryVisible)}>
-                      {s.docQueryVisible ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
-                      {s.docQueryVisible ? LABEL.COLLAPSE : LABEL.EXPAND}
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground" onClick={handleResetAll}>
-                      <RefreshCw className="w-2.5 h-2.5" /> {LABEL.RESET_ALL}
-                    </Button>
-                    <div className="flex-1" />
-                    {s.selectedDocs.size > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-violet-500/30 text-violet-400 bg-violet-500/10" onClick={() => { s.setBulkUpdateJson(`{\n  "$set": {\n    \n  }\n}`); s.setShowBulkUpdateModal(true); }}>
-                          <RefreshCw className="w-2.5 h-2.5" /> Update {s.selectedDocs.size}
-                        </Button>
-                        <Button size="sm" variant="destructive" className="h-6 text-[10px] gap-1" onClick={docActions.handleBulkDelete}>
-                          <Trash2 className="w-2.5 h-2.5" /> Delete {s.selectedDocs.size}
-                        </Button>
+                {isMobile ? (
+                  <div className="px-3 py-2 border-b border-border bg-card shrink-0 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 flex items-center gap-1.5 bg-muted/40 rounded-full px-3 py-1 border border-border/60" title="Focus: ⌘K">
+                        <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                        <input
+                          data-doc-page-search
+                          type="text"
+                          value={s.localSearch}
+                          onChange={(e) => s.setLocalSearch(e.target.value)}
+                          placeholder="Search in page..."
+                          className="bg-transparent text-xs w-full outline-none placeholder:text-muted-foreground/50 py-0.5"
+                        />
+                        {s.localSearch && (
+                          <button className="text-muted-foreground hover:text-foreground" onClick={() => s.setLocalSearch("")}>
+                            <XCircle className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
-                    )}
+                      <Button
+                        variant={s.filterStr !== "{}" || s.sortStr !== "{}" ? "default" : "outline"}
+                        size="sm"
+                        className="h-8 rounded-full text-xs gap-1.5 px-3"
+                        onClick={() => setMobileQueryModalOpen(true)}
+                      >
+                        <Filter className="w-3 h-3" />
+                        <span>Filter</span>
+                        {(s.filterStr !== "{}" || s.sortStr !== "{}") && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Horizontal scrollable quick settings/stats for mobile */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-invisible py-0.5 text-[10px] text-muted-foreground">
+                      <span className="shrink-0 bg-muted/30 px-2 py-0.5 rounded border border-border/40 font-mono">
+                        {sortedVisibleDocs.length} shown
+                      </span>
+                      <button
+                        className={`shrink-0 px-2 py-0.5 rounded border border-border/40 font-mono transition-colors ${s.viewMode === "json" ? "bg-primary/10 text-primary border-primary/20" : ""}`}
+                        onClick={() => s.setViewMode("json")}
+                      >
+                        JSON View
+                      </button>
+                      <button
+                        className={`shrink-0 px-2 py-0.5 rounded border border-border/40 font-mono transition-colors ${s.viewMode === "card" ? "bg-primary/10 text-primary border-primary/20" : ""}`}
+                        onClick={() => s.setViewMode("card")}
+                      >
+                        Card View
+                      </button>
+                      <button
+                        className="shrink-0 px-2 py-0.5 rounded border border-border/40 font-mono text-rose-500 hover:bg-rose-500/5 transition-colors"
+                        onClick={handleResetAll}
+                      >
+                        Reset All
+                      </button>
+                    </div>
                   </div>
-
-                  {s.docQueryVisible && s.docQueryMode === "visual" && (
-                    <VisualQueryBuilder
-                      filterValue={s.filterStr} sortValue={s.sortStr}
-                      onFilterChange={(val) => s.setFilterStr(val || "{}")} onSortChange={(val) => s.setSortStr(val || "{}")}
-                      fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
-                      liveQuery={s.docQueryLive}
-                      onExecute={(payload) => { s.setPage(1); if (payload) { s.setAppliedFilterStr(payload.filter); s.setAppliedSortStr(payload.sort); } queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }); }}
-                      isExecuting={docsLoading} compact
-                    />
-                  )}
-
-                  {s.docQueryVisible && s.docQueryMode === "code" && (
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[9px] text-muted-foreground uppercase tracking-wider shrink-0">Format</span>
-                        <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
-                          <button type="button" className={`px-2 py-1 text-[10px] font-medium transition-colors ${s.docCodeFormat === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocCodeFormat("json")}>Strict JSON</button>
-                          <button type="button" className={`px-2 py-1 text-[10px] font-medium transition-colors ${s.docCodeFormat === "mongosh" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocCodeFormat("mongosh")} title="mongosh / CLI style">mongosh (CLI)</button>
-                        </div>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground" onClick={() => s.setDocCodeEditorsExpanded((e) => !e)}>
-                          <ChevronsDownUp className="w-3 h-3" />
-                          {s.docCodeEditorsExpanded ? LABEL.COMPACT : LABEL.EXPAND}
-                        </Button>
+                ) : (
+                  <div className="px-4 py-2 border-b border-border bg-card shrink-0 space-y-0">
+                    <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                      <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
+                        <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${s.docQueryMode === "visual" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocQueryMode("visual")}>
+                          <MousePointerClick className="w-2.5 h-2.5" /> {LABEL.QUERY_VISUAL}
+                        </button>
+                        <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${s.docQueryMode === "code" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocQueryMode("code")}>
+                          <Code className="w-2.5 h-2.5" /> {LABEL.QUERY_CODE}
+                        </button>
                       </div>
-                      {shellQueryBlocked && documentsListParams.parseError && (
-                        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
-                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                          <span className="font-mono leading-snug">{documentsListParams.parseError}</span>
+                      <div className="flex items-center rounded-md border border-border/50 overflow-hidden" title="When off, the grid updates only after Apply.">
+                        <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${s.docQueryLive ? "bg-emerald-600/90 text-white" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocQueryLive(true)}>
+                          <Zap className="w-2.5 h-2.5" /> {LABEL.QUERY_LIVE}
+                        </button>
+                        <button type="button" className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${!s.docQueryLive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => { s.setAppliedFilterStr(s.filterStr); s.setAppliedSortStr(s.sortStr); s.setDocQueryLive(false); }}>
+                          <Play className="w-2.5 h-2.5" /> {LABEL.QUERY_APPLY_MODE}
+                        </button>
+                      </div>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground" onClick={() => s.setDocQueryVisible(!s.docQueryVisible)}>
+                        {s.docQueryVisible ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                        {s.docQueryVisible ? LABEL.COLLAPSE : LABEL.EXPAND}
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground" onClick={handleResetAll}>
+                        <RefreshCw className="w-2.5 h-2.5" /> {LABEL.RESET_ALL}
+                      </Button>
+                      <div className="flex-1" />
+                      {s.selectedDocs.size > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-violet-500/30 text-violet-400 bg-violet-500/10" onClick={() => { s.setBulkUpdateJson(`{\n  "$set": {\n    \n  }\n}`); s.setShowBulkUpdateModal(true); }}>
+                            <RefreshCw className="w-2.5 h-2.5" /> Update {s.selectedDocs.size}
+                          </Button>
+                          <Button size="sm" variant="destructive" className="h-6 text-[10px] gap-1" onClick={docActions.handleBulkDelete}>
+                            <Trash2 className="w-2.5 h-2.5" /> Delete {s.selectedDocs.size}
+                          </Button>
                         </div>
                       )}
-                      <div className="flex flex-col gap-2">
-                        <QueryEditor
-                          value={s.filterStr === "{}" ? "" : s.filterStr}
-                          onChange={(val) => s.setFilterStr(val || "{}")}
-                          placeholder={s.docCodeFormat === "mongosh" ? '{ status: "active" }' : 'Filter: { "field": "value" }'}
-                          fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
-                          height={s.docCodeEditorsExpanded ? (s.docCodeFormat === "mongosh" ? "260px" : "220px") : (s.docCodeFormat === "mongosh" ? "100px" : "88px")}
-                          className="flex-1 min-w-0 w-full" mode="filter"
-                          syntax={s.docCodeFormat === "mongosh" ? "mongosh" : "json"}
-                          onExecute={s.docQueryLive ? () => queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }) : applyDocumentQuery}
-                        />
-                        <div className="flex flex-col gap-2 min-[520px]:flex-row min-[520px]:items-end">
+                    </div>
+
+                    {s.docQueryVisible && s.docQueryMode === "visual" && (
+                      <VisualQueryBuilder
+                        filterValue={s.filterStr} sortValue={s.sortStr}
+                        onFilterChange={(val) => s.setFilterStr(val || "{}")} onSortChange={(val) => s.setSortStr(val || "{}")}
+                        fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
+                        liveQuery={s.docQueryLive}
+                        onExecute={(payload) => { s.setPage(1); if (payload) { s.setAppliedFilterStr(payload.filter); s.setAppliedSortStr(payload.sort); } queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }); }}
+                        isExecuting={docsLoading} compact
+                      />
+                    )}
+
+                    {s.docQueryVisible && s.docQueryMode === "code" && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[9px] text-muted-foreground uppercase tracking-wider shrink-0">Format</span>
+                          <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
+                            <button type="button" className={`px-2 py-1 text-[10px] font-medium transition-colors ${s.docCodeFormat === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocCodeFormat("json")}>Strict JSON</button>
+                            <button type="button" className={`px-2 py-1 text-[10px] font-medium transition-colors ${s.docCodeFormat === "mongosh" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocCodeFormat("mongosh")} title="mongosh / CLI style">mongosh (CLI)</button>
+                          </div>
+                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground" onClick={() => s.setDocCodeEditorsExpanded((e) => !e)}>
+                            <ChevronsDownUp className="w-3 h-3" />
+                            {s.docCodeEditorsExpanded ? LABEL.COMPACT : LABEL.EXPAND}
+                          </Button>
+                        </div>
+                        {shellQueryBlocked && documentsListParams.parseError && (
+                          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[10px] text-destructive">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span className="font-mono leading-snug">{documentsListParams.parseError}</span>
+                          </div>
+                        )}
+                        <div className="flex flex-col gap-2">
                           <QueryEditor
-                            value={s.sortStr === "{}" ? "" : s.sortStr}
-                            onChange={(val) => s.setSortStr(val || "{}")}
-                            placeholder={s.docCodeFormat === "mongosh" ? "{ createdAt: -1 }" : 'Sort: { "field": -1 }'}
+                            value={s.filterStr === "{}" ? "" : s.filterStr}
+                            onChange={(val) => s.setFilterStr(val || "{}")}
+                            placeholder={s.docCodeFormat === "mongosh" ? '{ status: "active" }' : 'Filter: { "field": "value" }'}
                             fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
-                            height={s.docCodeEditorsExpanded ? (s.docCodeFormat === "mongosh" ? "120px" : "100px") : (s.docCodeFormat === "mongosh" ? "72px" : "64px")}
-                            className="flex-1 min-w-0 w-full min-[520px]:max-w-xs" mode="sort"
+                            height={s.docCodeEditorsExpanded ? (s.docCodeFormat === "mongosh" ? "260px" : "220px") : (s.docCodeFormat === "mongosh" ? "100px" : "88px")}
+                            className="flex-1 min-w-0 w-full" mode="filter"
                             syntax={s.docCodeFormat === "mongosh" ? "mongosh" : "json"}
                             onExecute={s.docQueryLive ? () => queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }) : applyDocumentQuery}
                           />
-                          {!s.docQueryLive && (
-                            <Button size="sm" variant="default" className="h-8 text-[10px] gap-1 shrink-0" type="button" onClick={applyDocumentQuery}>
-                              <Play className="w-2.5 h-2.5" /> {LABEL.APPLY_QUERY}
-                            </Button>
-                          )}
+                          <div className="flex flex-col gap-2 min-[520px]:flex-row min-[520px]:items-end">
+                            <QueryEditor
+                              value={s.sortStr === "{}" ? "" : s.sortStr}
+                              onChange={(val) => s.setSortStr(val || "{}")}
+                              placeholder={s.docCodeFormat === "mongosh" ? "{ createdAt: -1 }" : 'Sort: { "field": -1 }'}
+                              fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
+                              height={s.docCodeEditorsExpanded ? (s.docCodeFormat === "mongosh" ? "120px" : "100px") : (s.docCodeFormat === "mongosh" ? "72px" : "64px")}
+                              className="flex-1 min-w-0 w-full min-[520px]:max-w-xs" mode="sort"
+                              syntax={s.docCodeFormat === "mongosh" ? "mongosh" : "json"}
+                              onExecute={s.docQueryLive ? () => queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }) : applyDocumentQuery}
+                            />
+                            {!s.docQueryLive && (
+                              <Button size="sm" variant="default" className="h-8 text-[10px] gap-1 shrink-0" type="button" onClick={applyDocumentQuery}>
+                                <Play className="w-2.5 h-2.5" /> {LABEL.APPLY_QUERY}
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
 
-                {/* Feature toolbar */}
-                <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/50 bg-muted/20 shrink-0 flex-wrap">
-                  <div className="flex items-center rounded-md border border-border/40 overflow-hidden">
-                    <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "json" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("json")} title={LABEL.VIEW_JSON}><FileJson className="w-3 h-3" /></button>
-                    <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "card" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("card")} title={LABEL.VIEW_CARD}><LayoutGrid className="w-3 h-3" /></button>
-                    {!isMobile && (
-                      <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "spreadsheet" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("spreadsheet")} title={LABEL.VIEW_SPREADSHEET}><Grid3x3 className="w-3 h-3" /></button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1" onClick={() => s.setShowColumnManager(!s.showColumnManager)}>
-                      <Columns className="w-2.5 h-2.5" /> {LABEL.COLUMNS}
+                {/* Feature toolbar (desktop only) */}
+                {!isMobile && (
+                  <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/50 bg-muted/20 shrink-0 flex-wrap">
+                    <div className="flex items-center rounded-md border border-border/40 overflow-hidden">
+                      <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "json" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("json")} title={LABEL.VIEW_JSON}><FileJson className="w-3 h-3" /></button>
+                      <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "card" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("card")} title={LABEL.VIEW_CARD}><LayoutGrid className="w-3 h-3" /></button>
+                      {!isMobile && (
+                        <button className={`px-1.5 py-0.5 transition-colors ${s.viewMode === "spreadsheet" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setViewMode("spreadsheet")} title={LABEL.VIEW_SPREADSHEET}><Grid3x3 className="w-3 h-3" /></button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1" onClick={() => s.setShowColumnManager(!s.showColumnManager)}>
+                        <Columns className="w-2.5 h-2.5" /> {LABEL.COLUMNS}
+                      </Button>
+                      {s.showColumnManager && (
+                        <div className="absolute top-7 left-0 z-50 bg-card border border-border rounded-md shadow-lg p-2 w-48 max-h-64 overflow-auto">
+                          <p className="text-[9px] text-muted-foreground font-medium uppercase tracking-wider mb-1">{LABEL.SHOW_HIDE_COLUMNS}</p>
+                          {allFields.map((f) => (
+                            <label key={f} className="flex items-center gap-1.5 py-0.5 text-[10px] cursor-pointer hover:bg-muted/30 px-1 rounded">
+                              <input type="checkbox" className="rounded w-3 h-3" checked={!s.hiddenColumns.has(f)} onChange={(e) => s.setHiddenColumns((prev) => { const next = new Set(prev); e.target.checked ? next.delete(f) : next.add(f); return next; })} />
+                              <span className="font-mono truncate">{f}</span>
+                            </label>
+                          ))}
+                          {s.hiddenColumns.size > 0 && <Button variant="ghost" size="sm" className="w-full h-5 text-[9px] mt-1" onClick={() => s.setHiddenColumns(new Set())}>{LABEL.SHOW_ALL}</Button>}
+                        </div>
+                      )}
+                    </div>
+                    <Button variant={s.compareMode ? "default" : "ghost"} size="sm" className="h-6 text-[10px] gap-1" onClick={() => { s.setCompareMode(!s.compareMode); s.setCompareDocs([]); }}>
+                      <Diff className="w-2.5 h-2.5" /> {LABEL.COMPARE}
+                      {s.compareMode && s.compareDocs.length > 0 && <span className="ml-0.5">({s.compareDocs.length}/2)</span>}
                     </Button>
-                    {s.showColumnManager && (
-                      <div className="absolute top-7 left-0 z-50 bg-card border border-border rounded-md shadow-lg p-2 w-48 max-h-64 overflow-auto">
-                        <p className="text-[9px] text-muted-foreground font-medium uppercase tracking-wider mb-1">{LABEL.SHOW_HIDE_COLUMNS}</p>
-                        {allFields.map((f) => (
-                          <label key={f} className="flex items-center gap-1.5 py-0.5 text-[10px] cursor-pointer hover:bg-muted/30 px-1 rounded">
-                            <input type="checkbox" className="rounded w-3 h-3" checked={!s.hiddenColumns.has(f)} onChange={(e) => s.setHiddenColumns((prev) => { const next = new Set(prev); e.target.checked ? next.delete(f) : next.add(f); return next; })} />
-                            <span className="font-mono truncate">{f}</span>
-                          </label>
-                        ))}
-                        {s.hiddenColumns.size > 0 && <Button variant="ghost" size="sm" className="w-full h-5 text-[9px] mt-1" onClick={() => s.setHiddenColumns(new Set())}>{LABEL.SHOW_ALL}</Button>}
-                      </div>
+                    {docs.length > 0 && (
+                      <>
+                        <Badge variant="secondary" className="h-6 px-2 text-[10px] font-normal tabular-nums">{sortedVisibleDocs.length} shown</Badge>
+                        <Badge variant="outline" className="h-6 px-2 text-[10px] font-normal text-muted-foreground tabular-nums hidden sm:inline-flex">{formatPayloadSize(visibleJsonPayloadBytes)}</Badge>
+                      </>
                     )}
+                    <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] gap-1" title="Download visible documents as JSON" onClick={importExport.exportVisibleDocumentsJson} disabled={sortedVisibleDocs.length === 0}>
+                      <Download className="w-2.5 h-2.5" /> {LABEL.EXPORT}
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] gap-1" title="Copy all visible _id values" onClick={importExport.copyVisibleDocumentIds} disabled={sortedVisibleDocs.length === 0}>
+                      <ListTree className="w-2.5 h-2.5" /> {LABEL.COPY_IDS}
+                    </Button>
+                    {s.viewMode === "spreadsheet" && !s.compareMode && sortedVisibleDocs.length > 0 && (
+                      <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] gap-1" title="Invert bulk selection on this page" onClick={invertDocumentSelection}>{LABEL.INVERT_SEL}</Button>
+                    )}
+                    <div className="w-px h-4 bg-border/30" />
+                    <div className="flex items-center gap-1 bg-muted/30 rounded px-1.5 border border-border/30" title="Focus: ⌘K">
+                      <Search className="w-2.5 h-2.5 text-muted-foreground" />
+                      <input data-doc-page-search type="text" value={s.localSearch} onChange={(e) => s.setLocalSearch(e.target.value)} placeholder={LABEL.SEARCH_PLACEHOLDER} className="bg-transparent text-[10px] w-24 md:w-28 outline-none placeholder:text-muted-foreground/50 py-0.5" />
+                      {s.localSearch && <button className="text-muted-foreground hover:text-foreground" onClick={() => s.setLocalSearch("")}><XCircle className="w-2.5 h-2.5" /></button>}
+                    </div>
+                    <div className="flex-1" />
+                    <div className="flex items-center gap-1">
+                      <Timer className="w-2.5 h-2.5 text-muted-foreground" />
+                      <select value={s.autoRefreshInterval} onChange={(e) => s.setAutoRefreshInterval(Number(e.target.value))} className="bg-transparent text-[10px] text-muted-foreground border-none outline-none cursor-pointer">
+                        <option value={0}>Off</option>
+                        <option value={5}>5s</option>
+                        <option value={10}>10s</option>
+                        <option value={30}>30s</option>
+                        <option value={60}>60s</option>
+                      </select>
+                      {s.autoRefreshInterval > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                    </div>
                   </div>
-                  <Button variant={s.compareMode ? "default" : "ghost"} size="sm" className="h-6 text-[10px] gap-1" onClick={() => { s.setCompareMode(!s.compareMode); s.setCompareDocs([]); }}>
-                    <Diff className="w-2.5 h-2.5" /> {LABEL.COMPARE}
-                    {s.compareMode && s.compareDocs.length > 0 && <span className="ml-0.5">({s.compareDocs.length}/2)</span>}
-                  </Button>
-                  {docs.length > 0 && (
-                    <>
-                      <Badge variant="secondary" className="h-6 px-2 text-[10px] font-normal tabular-nums">{sortedVisibleDocs.length} shown</Badge>
-                      <Badge variant="outline" className="h-6 px-2 text-[10px] font-normal text-muted-foreground tabular-nums hidden sm:inline-flex">{formatPayloadSize(visibleJsonPayloadBytes)}</Badge>
-                    </>
-                  )}
-                  <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] gap-1" title="Download visible documents as JSON" onClick={importExport.exportVisibleDocumentsJson} disabled={sortedVisibleDocs.length === 0}>
-                    <Download className="w-2.5 h-2.5" /> {LABEL.EXPORT}
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] gap-1" title="Copy all visible _id values" onClick={importExport.copyVisibleDocumentIds} disabled={sortedVisibleDocs.length === 0}>
-                    <ListTree className="w-2.5 h-2.5" /> {LABEL.COPY_IDS}
-                  </Button>
-                  {s.viewMode === "spreadsheet" && !s.compareMode && sortedVisibleDocs.length > 0 && (
-                    <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] gap-1" title="Invert bulk selection on this page" onClick={invertDocumentSelection}>{LABEL.INVERT_SEL}</Button>
-                  )}
-                  <div className="w-px h-4 bg-border/30" />
-                  <div className="flex items-center gap-1 bg-muted/30 rounded px-1.5 border border-border/30" title="Focus: ⌘K">
-                    <Search className="w-2.5 h-2.5 text-muted-foreground" />
-                    <input data-doc-page-search type="text" value={s.localSearch} onChange={(e) => s.setLocalSearch(e.target.value)} placeholder={LABEL.SEARCH_PLACEHOLDER} className="bg-transparent text-[10px] w-24 md:w-28 outline-none placeholder:text-muted-foreground/50 py-0.5" />
-                    {s.localSearch && <button className="text-muted-foreground hover:text-foreground" onClick={() => s.setLocalSearch("")}><XCircle className="w-2.5 h-2.5" /></button>}
-                  </div>
-                  <div className="flex-1" />
-                  <div className="flex items-center gap-1">
-                    <Timer className="w-2.5 h-2.5 text-muted-foreground" />
-                    <select value={s.autoRefreshInterval} onChange={(e) => s.setAutoRefreshInterval(Number(e.target.value))} className="bg-transparent text-[10px] text-muted-foreground border-none outline-none cursor-pointer">
-                      <option value={0}>Off</option>
-                      <option value={5}>5s</option>
-                      <option value={10}>10s</option>
-                      <option value={30}>30s</option>
-                      <option value={60}>60s</option>
-                    </select>
-                    {s.autoRefreshInterval > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-                  </div>
-                </div>
+                )}
 
                 {/* Compare diff view */}
                 {s.compareMode && s.compareDocs.length === 2 && (() => {
@@ -1203,6 +1266,163 @@ export default function Explorer() {
 
       {/* ─── Modals ─────────────────────────────────────────────────────────── */}
 
+      {/* Mobile Query & Filter Dialog */}
+      <Dialog open={mobileQueryModalOpen} onOpenChange={setMobileQueryModalOpen}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Query & Filters</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-xs">
+            {/* Mode selector */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Query Mode</span>
+              <div className="flex items-center rounded-md border border-border/50 overflow-hidden w-full bg-muted/40">
+                <button
+                  type="button"
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${s.docQueryMode === "visual" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => s.setDocQueryMode("visual")}
+                >
+                  <MousePointerClick className="w-3.5 h-3.5" /> {LABEL.QUERY_VISUAL}
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors ${s.docQueryMode === "code" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => s.setDocQueryMode("code")}
+                >
+                  <Code className="w-3.5 h-3.5" /> {LABEL.QUERY_CODE}
+                </button>
+              </div>
+            </div>
+
+            {/* Live Query Switcher */}
+            <div className="flex items-center justify-between p-2 rounded-lg border border-border bg-muted/15">
+              <div>
+                <p className="font-semibold text-xs">Live Querying</p>
+                <p className="text-[9px] text-muted-foreground">Auto-updates as you type</p>
+              </div>
+              <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
+                <button
+                  type="button"
+                  className={`px-2.5 py-1 text-[10px] font-medium transition-colors ${s.docQueryLive ? "bg-emerald-600 text-white" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => s.setDocQueryLive(true)}
+                >
+                  On
+                </button>
+                <button
+                  type="button"
+                  className={`px-2.5 py-1 text-[10px] font-medium transition-colors ${!s.docQueryLive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                  onClick={() => s.setDocQueryLive(false)}
+                >
+                  Off
+                </button>
+              </div>
+            </div>
+
+            {/* Visual Builder or Code Editor */}
+            {s.docQueryMode === "visual" ? (
+              <VisualQueryBuilder
+                filterValue={s.filterStr}
+                sortValue={s.sortStr}
+                onFilterChange={(val) => s.setFilterStr(val || "{}")}
+                onSortChange={(val) => s.setSortStr(val || "{}")}
+                fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
+                liveQuery={s.docQueryLive}
+                onExecute={(payload) => {
+                  s.setPage(1);
+                  if (payload) {
+                    s.setAppliedFilterStr(payload.filter);
+                    s.setAppliedSortStr(payload.sort);
+                  }
+                  if (s.docQueryLive) {
+                    queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
+                  }
+                }}
+                isExecuting={docsLoading}
+                compact
+              />
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Format</span>
+                  <div className="flex items-center rounded-md border border-border/50 overflow-hidden">
+                    <button
+                      type="button"
+                      className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${s.docCodeFormat === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                      onClick={() => s.setDocCodeFormat("json")}
+                    >
+                      JSON
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${s.docCodeFormat === "mongosh" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                      onClick={() => s.setDocCodeFormat("mongosh")}
+                    >
+                      mongosh
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] text-muted-foreground uppercase font-semibold">Filter Specification</label>
+                  <QueryEditor
+                    value={s.filterStr === "{}" ? "" : s.filterStr}
+                    onChange={(val) => s.setFilterStr(val || "{}")}
+                    placeholder={s.docCodeFormat === "mongosh" ? '{ status: "active" }' : 'Filter: { "field": "value" }'}
+                    fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
+                    height="100px"
+                    className="w-full"
+                    mode="filter"
+                    syntax={s.docCodeFormat === "mongosh" ? "mongosh" : "json"}
+                    onExecute={s.docQueryLive ? () => queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }) : applyDocumentQuery}
+                  />
+
+                  <label className="text-[10px] text-muted-foreground uppercase font-semibold">Sort Specification</label>
+                  <QueryEditor
+                    value={s.sortStr === "{}" ? "" : s.sortStr}
+                    onChange={(val) => s.setSortStr(val || "{}")}
+                    placeholder={s.docCodeFormat === "mongosh" ? "{ createdAt: -1 }" : 'Sort: { "field": -1 }'}
+                    fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
+                    height="80px"
+                    className="w-full"
+                    mode="sort"
+                    syntax={s.docCodeFormat === "mongosh" ? "mongosh" : "json"}
+                    onExecute={s.docQueryLive ? () => queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) }) : applyDocumentQuery}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="mt-4 flex flex-row gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 h-9 rounded-lg"
+              onClick={() => {
+                s.setFilterStr("{}");
+                s.setSortStr("{}");
+                s.setAppliedFilterStr("{}");
+                s.setAppliedSortStr("{}");
+                s.setPage(1);
+                if (s.docQueryLive) {
+                  queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey(connectionId, database, collection) });
+                }
+                setMobileQueryModalOpen(false);
+              }}
+            >
+              Clear
+            </Button>
+            <Button
+              className="flex-1 h-9 rounded-lg"
+              onClick={() => {
+                applyDocumentQuery();
+                setMobileQueryModalOpen(false);
+              }}
+            >
+              Apply Filter
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Insert */}
       <Dialog open={s.showInsertModal} onOpenChange={s.setShowInsertModal}>
         <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{MODAL_TITLE.INSERT_DOCUMENT}</DialogTitle></DialogHeader>
@@ -1446,6 +1666,50 @@ export default function Explorer() {
           <DialogFooter><Button variant="outline" onClick={() => s.setShowDropColModal(false)}>{LABEL.CANCEL}</Button><Button variant="destructive" onClick={handleDropCollection} disabled={dropCol.isPending}>{dropCol.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : LABEL.DROP_COLLECTION}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Mobile Floating Bulk Action Bar */}
+      {isMobile && s.selectedDocs.size > 0 && (
+        <div
+          className="fixed bottom-[calc(var(--mobile-nav-height)+var(--safe-area-bottom)+12px)] left-4 right-4 z-40 bg-card/95 backdrop-blur-md border border-border/80 rounded-full shadow-2xl p-2.5 flex items-center justify-between animate-in slide-in-from-bottom-5 duration-300"
+          style={{ bottom: "calc(56px + env(safe-area-inset-bottom, 0px) + 12px)" }}
+        >
+          <div className="flex items-center gap-2 pl-2">
+            <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span className="text-xs font-semibold">
+              {s.selectedDocs.size} selected
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 rounded-full text-xs text-muted-foreground"
+              onClick={() => s.setSelectedDocs(new Set())}
+            >
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 rounded-full text-xs gap-1 border-violet-500/30 text-violet-400 bg-violet-500/5 hover:bg-violet-500/10"
+              onClick={() => {
+                s.setBulkUpdateJson(`{\n  "$set": {\n    \n  }\n}`);
+                s.setShowBulkUpdateModal(true);
+              }}
+            >
+              Update
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-8 rounded-full text-xs gap-1 px-3"
+              onClick={docActions.handleBulkDelete}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

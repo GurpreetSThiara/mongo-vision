@@ -264,7 +264,7 @@ function DocumentCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 opacity-20 group-hover:opacity-100 transition-opacity"
+                className="h-7 w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
                 onClick={onCopy}
               >
                 <Copy className="w-3.5 h-3.5" />
@@ -278,7 +278,7 @@ function DocumentCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 opacity-20 group-hover:opacity-100 transition-opacity"
+                className="h-7 w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
                 onClick={onTogglePin}
               >
                 <Pin className={`w-3.5 h-3.5 ${pinned ? "text-amber-500 fill-amber-500/20" : ""}`} />
@@ -293,7 +293,7 @@ function DocumentCard({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 opacity-20 group-hover:opacity-100 transition-opacity"
+                  className="h-7 w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
                   onClick={onOpenDocument}
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
