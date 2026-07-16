@@ -151,8 +151,8 @@ export function DocumentJsonModal({
         className={cn(
           "!flex !flex-col gap-0 p-0 overflow-hidden border-border/80",
           fullscreen
-            ? "left-2 top-2 translate-x-0 translate-y-0 w-[calc(100%-1rem)] h-[calc(100%-1rem)] max-w-none max-h-none sm:rounded-xl"
-            : "max-w-[min(88rem,96vw)] w-[95vw] h-[min(92vh,920px)] max-h-[92vh] sm:rounded-xl",
+            ? "left-0 top-0 md:left-2 md:top-2 translate-x-0 translate-y-0 w-full md:w-[calc(100%-1rem)] h-full md:h-[calc(100%-1rem)] max-w-none max-h-none rounded-none md:rounded-xl"
+            : "left-0 top-0 translate-x-0 translate-y-0 md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 max-w-none md:max-w-[min(88rem,96vw)] w-full md:w-[95vw] h-full md:h-[min(92vh,920px)] max-h-screen md:max-h-[92vh] rounded-none md:rounded-xl",
         )}
       >
         <DialogHeader className="px-5 pt-5 pb-3 shrink-0 border-b border-border/40 space-y-2 text-left">

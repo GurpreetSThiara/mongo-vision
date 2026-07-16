@@ -33,7 +33,7 @@ function readJson<T>(raw: string | null, fallback: T): T {
 
 export function loadDocExplorerPrefs(): DocExplorerPrefs {
   if (typeof localStorage === "undefined") return { ...DEFAULTS };
-  const raw = localStorage.getItem(`${LS_PREFIX}.v1`);
+  const raw = localStorage.getItem(`${LS_PREFIX}.v2`);
   const parsed = readJson<Partial<DocExplorerPrefs>>(raw, {});
   return {
     docQueryMode: parsed.docQueryMode === "code" ? "code" : DEFAULTS.docQueryMode,
@@ -54,7 +54,7 @@ export function saveDocExplorerPrefs(prefs: Partial<DocExplorerPrefs>): void {
   if (typeof localStorage === "undefined") return;
   const cur = loadDocExplorerPrefs();
   const next = { ...cur, ...prefs };
-  localStorage.setItem(`${LS_PREFIX}.v1`, JSON.stringify(next));
+  localStorage.setItem(`${LS_PREFIX}.v2`, JSON.stringify(next));
 }
 
 export function spreadsheetStorageKey(connectionId: string, database: string, collection: string): string {

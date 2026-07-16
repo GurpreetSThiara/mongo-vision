@@ -1,5 +1,7 @@
 import { useState, useMemo, memo } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
+import { JsonNode } from "./DocumentsJsonView";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -197,6 +199,8 @@ function DocumentCard({
 }) {
   const docId = String(doc._id || "");
 
+  const isMobile = useIsMobile();
+
   // "Best guess" for a title
   const titleField = useMemo(() => {
     const candidates = ["name", "title", "label", "username", "email", "full_name", "subject", "heading"];
@@ -208,6 +212,10 @@ function DocumentCard({
   const inCompare = compareDocs?.includes(docId) ?? false;
   const compareDisabled = compareMode && (compareDocs?.length ?? 0) >= 2 && !inCompare;
   const isSelected = selectedDocs?.has(docId) ?? false;
+
+  const fieldsToRender = useMemo(() => {
+    return visibleFields.filter((f) => f !== "_id" && f !== titleField);
+  }, [visibleFields, titleField]);
 
   return (
     <article
@@ -237,11 +245,11 @@ function DocumentCard({
           </button>
         </div>
 
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="flex items-center gap-2 md:gap-0.5 shrink-0">
           {compareMode ? (
              <input
                 type="checkbox"
-                className="mr-1.5 rounded accent-violet-500 w-3.5 h-3.5"
+                className="mr-1.5 rounded accent-violet-500 w-4 h-4 md:w-3.5 md:h-3.5 cursor-pointer"
                 checked={inCompare}
                 disabled={compareDisabled}
                 onChange={(e) => onToggleCompare?.(docId, e.target.checked)}
@@ -250,7 +258,7 @@ function DocumentCard({
              onToggleSelect && (
                <input
                   type="checkbox"
-                  className="mr-1.5 rounded accent-primary w-3.5 h-3.5 cursor-pointer"
+                  className="mr-1.5 rounded accent-primary w-4 h-4 md:w-3.5 md:h-3.5 cursor-pointer"
                   checked={isSelected}
                   onChange={(e) => onToggleSelect(docId, e.target.checked)}
                   title="Select document"
@@ -264,10 +272,10 @@ function DocumentCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
+                className="h-9 w-9 md:h-7 md:w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
                 onClick={onCopy}
               >
-                <Copy className="w-3.5 h-3.5" />
+                <Copy className="w-4 h-4 md:w-3.5 md:h-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>Copy JSON</TooltipContent>
@@ -278,10 +286,10 @@ function DocumentCard({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
+                className="h-9 w-9 md:h-7 md:w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
                 onClick={onTogglePin}
               >
-                <Pin className={`w-3.5 h-3.5 ${pinned ? "text-amber-500 fill-amber-500/20" : ""}`} />
+                <Pin className={`w-4 h-4 md:w-3.5 md:h-3.5 ${pinned ? "text-amber-500 fill-amber-500/20" : ""}`} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{pinned ? "Unpin" : "Pin to top"}</TooltipContent>
@@ -293,10 +301,10 @@ function DocumentCard({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
+                  className="h-9 w-9 md:h-7 md:w-7 opacity-80 md:opacity-20 md:group-hover:opacity-100 transition-opacity"
                   onClick={onOpenDocument}
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  <ExternalLink className="w-4 h-4 md:w-3.5 md:h-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Open in Editor</TooltipContent>
@@ -305,20 +313,24 @@ function DocumentCard({
         </div>
       </header>
 
-      <div className="flex-1 space-y-2.5 overflow-hidden">
-        {visibleFields
-          .filter((f) => f !== "_id" && f !== titleField)
-          .map((f) => (
-            <div key={f} className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-tighter truncate max-w-[120px]" title={f}>
-                  {f}
-                </span>
-                {getTypeIcon(doc[f])}
+      <div className="flex-1 overflow-x-auto min-h-0 font-mono text-[11px] leading-relaxed p-2 bg-muted/20 rounded-lg border border-border/40 scrollbar-invisible">
+        {isMobile ? (
+          <JsonNode data={doc} depth={0} collapseFromDepth={1} searchQuery="" />
+        ) : (
+          <div className="space-y-2.5">
+            {fieldsToRender.map((f) => (
+              <div key={f} className="flex flex-col gap-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-tighter truncate max-w-[120px]" title={f}>
+                    {f}
+                  </span>
+                  {getTypeIcon(doc[f])}
+                </div>
+                <CardFieldValue field={f} value={doc[f]} onQuickFilter={onQuickFilter} />
               </div>
-              <CardFieldValue field={f} value={doc[f]} onQuickFilter={onQuickFilter} />
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between">
@@ -329,7 +341,7 @@ function DocumentCard({
            <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-[10px] font-medium text-primary hover:bg-primary/5"
+            className="h-7 px-2.5 text-[10px] font-medium text-primary hover:bg-primary/5"
             onClick={onDuplicate}
            >
               <Plus className="w-2.5 h-2.5 mr-1" /> Duplicate

@@ -311,6 +311,73 @@ export function DocumentsSpreadsheetView({
     [layout.rowHeight, onRowResizeMove, onRowResizeUp],
   );
 
+  const onColResizeTouchMove = useCallback(
+    (e: TouchEvent) => {
+      const r = colResizeRef.current;
+      if (!r || e.touches.length === 0) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - r.startX;
+      const w = Math.min(MAX_COL, Math.max(MIN_COL, r.startW + dx));
+      onLayoutChange({
+        ...layout,
+        colWidths: { ...layout.colWidths, [r.field]: w },
+      });
+    },
+    [layout, onLayoutChange],
+  );
+
+  const onColResizeTouchEnd = useCallback(() => {
+    colResizeRef.current = null;
+    setResizingCol(null);
+    window.removeEventListener("touchmove", onColResizeTouchMove);
+    window.removeEventListener("touchend", onColResizeTouchEnd);
+  }, [onColResizeTouchMove]);
+
+  const startColResizeTouch = useCallback(
+    (field: string, e: React.TouchEvent) => {
+      if (e.touches.length === 0) return;
+      e.stopPropagation();
+      const touch = e.touches[0];
+      colResizeRef.current = { field, startX: touch.clientX, startW: colWidth(field) };
+      setResizingCol(field);
+      window.addEventListener("touchmove", onColResizeTouchMove, { passive: false });
+      window.addEventListener("touchend", onColResizeTouchEnd);
+    },
+    [colWidth, onColResizeTouchMove, onColResizeTouchEnd],
+  );
+
+  const onRowResizeTouchMove = useCallback(
+    (e: TouchEvent) => {
+      const r = rowResizeRef.current;
+      if (!r || e.touches.length === 0) return;
+      const touch = e.touches[0];
+      const dy = touch.clientY - r.startY;
+      const h = Math.min(MAX_ROW, Math.max(MIN_ROW, r.startH + dy));
+      onLayoutChange({ ...layout, rowHeight: h });
+    },
+    [layout, onLayoutChange],
+  );
+
+  const onRowResizeTouchEnd = useCallback(() => {
+    rowResizeRef.current = null;
+    setResizingRow(null);
+    window.removeEventListener("touchmove", onRowResizeTouchMove);
+    window.removeEventListener("touchend", onRowResizeTouchEnd);
+  }, [onRowResizeTouchMove]);
+
+  const startRowResizeTouch = useCallback(
+    (docId: string, e: React.TouchEvent) => {
+      if (e.touches.length === 0) return;
+      e.stopPropagation();
+      const touch = e.touches[0];
+      rowResizeRef.current = { docId, startY: touch.clientY, startH: layout.rowHeight };
+      setResizingRow(docId);
+      window.addEventListener("touchmove", onRowResizeTouchMove, { passive: false });
+      window.addEventListener("touchend", onRowResizeTouchEnd);
+    },
+    [layout.rowHeight, onRowResizeTouchMove, onRowResizeTouchEnd],
+  );
+
   const applyWidthToAllColumns = useCallback(() => {
     if (visibleFields.length === 0) return;
     const w = visibleFields.reduce((acc, f) => acc + colWidth(f), 0) / visibleFields.length;
@@ -414,6 +481,7 @@ export function DocumentsSpreadsheetView({
           }`}
           aria-label={`Resize ${f}`}
           onMouseDown={(e) => startColResize(f, e)}
+          onTouchStart={(e) => startColResizeTouch(f, e)}
         />
       </div>
     );
@@ -754,6 +822,7 @@ export function DocumentsSpreadsheetView({
                   title="Resize row height (all rows)"
                   aria-label="Resize row height for all rows"
                   onMouseDown={(e) => startRowResize(docId, e)}
+                  onTouchStart={(e) => startRowResizeTouch(docId, e)}
                 />
               </div>
             );

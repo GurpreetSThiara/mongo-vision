@@ -4,6 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Copy,
   Pin,
   Plus,
@@ -13,6 +14,7 @@ import {
   FileJson,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export interface DocumentsJsonViewProps {
   docs: Record<string, unknown>[];
@@ -138,14 +140,14 @@ const JsonPrimitive = memo(function JsonPrimitive({
   return <span className="text-foreground">{String(value)}</span>;
 });
 
-type JsonNodeProps = {
+export type JsonNodeProps = {
   data: unknown;
   depth: number;
   collapseFromDepth: number;
   searchQuery: string;
 };
 
-const JsonNode = memo(function JsonNode({ data, depth, collapseFromDepth, searchQuery }: JsonNodeProps) {
+export const JsonNode = memo(function JsonNode({ data, depth, collapseFromDepth, searchQuery }: JsonNodeProps) {
   const [collapsed, setCollapsed] = useState(() => depth >= collapseFromDepth);
 
   if (data === null || data === undefined || typeof data === "boolean" || typeof data === "number" || typeof data === "string") {
@@ -158,25 +160,18 @@ const JsonNode = memo(function JsonNode({ data, depth, collapseFromDepth, search
     }
     return (
       <span className="block w-full min-w-0 align-top">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => setCollapsed((c) => !c)}
-              className="inline-flex items-center gap-0.5 rounded px-0.5 -mx-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-              aria-expanded={!collapsed}
-            >
-              {collapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
-              <span className="text-sky-600/80 dark:text-sky-400/80 font-medium text-[11px] tabular-nums">[{data.length}]</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-xs">
-            {collapsed ? "Expand" : "Collapse"} array · {data.length} item{data.length !== 1 ? "s" : ""}
-          </TooltipContent>
-        </Tooltip>
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="inline-flex items-center gap-0.5 rounded px-0.5 -mx-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+          <span className="text-sky-600/80 dark:text-sky-400/80 font-medium text-[11px] tabular-nums">[{data.length}]</span>
+        </button>
         {!collapsed && (
           <div
-            className="ml-4 mt-0.5 border-l border-border/60 pl-2.5 space-y-0.5"
+            className="ml-2 md:ml-4 mt-0.5 border-l border-border/60 pl-1.5 md:pl-2.5 space-y-0.5"
             style={{ marginLeft: "0.65rem" }}
           >
             {data.map((item, i) => (
@@ -211,29 +206,22 @@ const JsonNode = memo(function JsonNode({ data, depth, collapseFromDepth, search
     }
     return (
       <span className="block w-full min-w-0 align-top">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => setCollapsed((c) => !c)}
-              className="inline-flex items-center gap-0.5 rounded px-0.5 -mx-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-              aria-expanded={!collapsed}
-            >
-              {collapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
-              <span className="text-sky-600/80 dark:text-sky-400/80 font-medium text-[11px]">
-                {"{"}
-                {keys.length}
-                {"}"}
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-xs">
-            {collapsed ? "Expand" : "Collapse"} object · {keys.length} key{keys.length !== 1 ? "s" : ""}
-          </TooltipContent>
-        </Tooltip>
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="inline-flex items-center gap-0.5 rounded px-0.5 -mx-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <ChevronRight className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+          <span className="text-sky-600/80 dark:text-sky-400/80 font-medium text-[11px]">
+            {"{"}
+            {keys.length}
+            {"}"}
+          </span>
+        </button>
         {!collapsed && (
           <div
-            className="ml-4 mt-0.5 border-l border-border/60 pl-2.5 space-y-0.5"
+            className="ml-2 md:ml-4 mt-0.5 border-l border-border/60 pl-1.5 md:pl-2.5 space-y-0.5"
             style={{ marginLeft: "0.65rem" }}
           >
             {keys.map((k) => (
@@ -365,6 +353,8 @@ function DocumentJsonCard({
   selectedDocs?: Set<string>;
   onToggleSelect?: (docId: string, checked: boolean) => void;
 }) {
+  const isMobile = useIsMobile();
+  const [cardExpanded, setCardExpanded] = useState(() => !isMobile);
   const [collapseFromDepth, setCollapseFromDepth] = useState(1);
   const [treeKey, setTreeKey] = useState(0);
 
@@ -396,33 +386,44 @@ function DocumentJsonCard({
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/50 bg-gradient-to-b from-muted/50 to-muted/20 px-3 py-2 backdrop-blur-sm">
         {compareMode ? (
           onToggleCompare && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex shrink-0">
-                  <input
-                    type="checkbox"
-                    className="rounded accent-violet-500 w-3.5 h-3.5"
-                    checked={inCompare}
-                    disabled={compareDisabled}
-                    onChange={(e) => onToggleCompare(docId, e.target.checked)}
-                    aria-label="Compare document"
-                  />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {compareDisabled
-                  ? "Compare allows only two documents — clear one to pick another"
-                  : inCompare
-                    ? "Remove from compare"
-                    : "Add to compare (pick two documents)"}
-              </TooltipContent>
-            </Tooltip>
+            isMobile ? (
+              <input
+                type="checkbox"
+                className="rounded accent-violet-500 w-4 h-4 cursor-pointer mr-1.5"
+                checked={inCompare}
+                disabled={compareDisabled}
+                onChange={(e) => onToggleCompare(docId, e.target.checked)}
+                aria-label="Compare document"
+              />
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <input
+                      type="checkbox"
+                      className="rounded accent-violet-500 w-3.5 h-3.5"
+                      checked={inCompare}
+                      disabled={compareDisabled}
+                      onChange={(e) => onToggleCompare(docId, e.target.checked)}
+                      aria-label="Compare document"
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {compareDisabled
+                    ? "Compare allows only two documents — clear one to pick another"
+                    : inCompare
+                      ? "Remove from compare"
+                      : "Add to compare (pick two documents)"}
+                </TooltipContent>
+              </Tooltip>
+            )
           )
         ) : (
           onToggleSelect && (
             <input
               type="checkbox"
-              className="rounded accent-primary w-3.5 h-3.5 cursor-pointer mr-1"
+              className="rounded accent-primary w-4 h-4 md:w-3.5 md:h-3.5 cursor-pointer mr-1.5"
               checked={isSelected}
               onChange={(e) => onToggleSelect(docId, e.target.checked)}
               title="Select document"
@@ -446,81 +447,127 @@ function DocumentJsonCard({
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-0.5 sm:gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[10px] gap-1 text-muted-foreground"
-                onClick={expandAll}
-              >
-                <ChevronsDownUp className="w-3 h-3" />
-                <span className="hidden sm:inline">Expand</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Expand all nested objects and arrays in this document</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[10px] gap-1 text-muted-foreground"
-                onClick={collapseAll}
-              >
-                <ChevronsUpDown className="w-3 h-3" />
-                <span className="hidden sm:inline">Collapse</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Collapse nested values to save space</TooltipContent>
-          </Tooltip>
-          <div className="hidden sm:block w-px h-4 bg-border/60 mx-0.5" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onCopy}>
-                <Copy className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Copy this document as JSON</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onDuplicate}>
-                <Plus className="w-3.5 h-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Insert a duplicate document (new _id)</TooltipContent>
-          </Tooltip>
-          {onOpenDocument && (
+        <div className="flex flex-wrap items-center gap-1 sm:gap-1">
+          {/* Card body toggle expand/collapse */}
+          {isMobile ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 text-muted-foreground"
+              onClick={() => setCardExpanded(!cardExpanded)}
+            >
+              {cardExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+          ) : (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onOpenDocument}>
-                  <FileJson className="w-3.5 h-3.5" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[10px] gap-1 text-muted-foreground"
+                  onClick={() => setCardExpanded(!cardExpanded)}
+                >
+                  {cardExpanded ? (
+                    <>
+                      <ChevronUp className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Collapse</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Expand</span>
+                    </>
+                  )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Open full JSON in editor modal (edit & save)</TooltipContent>
+              <TooltipContent>{cardExpanded ? "Collapse document body" : "Expand document body"}</TooltipContent>
             </Tooltip>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={`h-7 w-7 ${pinned ? "text-amber-500" : ""}`}
-                onClick={onTogglePin}
-              >
-                <Pin className="w-3.5 h-3.5" />
+
+          <div className="hidden sm:block w-px h-4 bg-border/60 mx-0.5" />
+
+          {/* Copy */}
+          {isMobile ? (
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onCopy}>
+              <Copy className="w-4 h-4" />
+            </Button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onCopy}>
+                  <Copy className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy this document as JSON</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Duplicate */}
+          {isMobile ? (
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onDuplicate}>
+              <Plus className="w-4 h-4" />
+            </Button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onDuplicate}>
+                  <Plus className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Insert a duplicate document (new _id)</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Open full editor */}
+          {onOpenDocument && (
+            isMobile ? (
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onOpenDocument}>
+                <FileJson className="w-4 h-4" />
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Pin to top of the list on this page</TooltipContent>
-          </Tooltip>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onOpenDocument}>
+                    <FileJson className="w-3.5 h-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Open full JSON in editor modal (edit & save)</TooltipContent>
+              </Tooltip>
+            )
+          )}
+
+          {/* Pin */}
+          {isMobile ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={`h-8 w-8 ${pinned ? "text-amber-500" : ""}`}
+              onClick={onTogglePin}
+            >
+              <Pin className="w-4 h-4" />
+            </Button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={`h-7 w-7 ${pinned ? "text-amber-500" : ""}`}
+                  onClick={onTogglePin}
+                >
+                  <Pin className="w-3.5 h-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Pin to top of the list on this page</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </header>
-      <div className="relative bg-[hsl(220_16%_98%)] dark:bg-[hsl(222_24%_8%)]">
+      <div className={`relative bg-[hsl(220_16%_98%)] dark:bg-[hsl(222_24%_8%)] transition-all duration-300 ${!cardExpanded ? "max-h-[96px] overflow-hidden" : ""}`}>
         <div
           className="absolute inset-y-0 left-0 w-2.5 sm:w-3 border-r border-border/30 bg-gradient-to-b from-muted/25 to-transparent pointer-events-none"
           aria-hidden
@@ -534,6 +581,11 @@ function DocumentJsonCard({
             )}
           </div>
         </div>
+
+        {/* Smooth gradient fade overlay for collapsed cards */}
+        {!cardExpanded && (
+          <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-[hsl(220_16%_98%)] dark:from-[hsl(222_24%_8%)] to-transparent pointer-events-none z-10" />
+        )}
       </div>
     </article>
   );
@@ -565,20 +617,6 @@ export function DocumentsJsonView({
 
   return (
     <div className="w-full min-w-0 space-y-4 px-3 py-3 md:px-4">
-      <p className="text-[10px] text-muted-foreground px-0.5 flex flex-wrap items-center gap-2">
-        <FileJson className="w-3.5 h-3.5 text-primary/70 shrink-0" />
-        <span>
-          <span className="text-foreground/80">Large screens:</span> fields split into two columns ·{" "}
-          <span className="text-foreground/80">_id</span> click copies · nested values start collapsed · search highlights
-          strings
-          {compareMode && (
-            <>
-              {" "}
-              · <span className="text-violet-400 font-medium">Compare</span> checkboxes on each card
-            </>
-          )}
-        </span>
-      </p>
       {docs.map((doc) => {
         const docId = String(doc._id ?? "");
         return (

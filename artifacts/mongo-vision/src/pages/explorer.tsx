@@ -592,7 +592,7 @@ export default function Explorer() {
     const visibleFields = orderedFields.filter((f) => !s.hiddenColumns.has(f));
     const sortedDocs = sortedVisibleDocs;
 
-    const effectiveViewMode = s.viewMode;
+    const effectiveViewMode = isMobile ? "json" : s.viewMode;
 
     switch (effectiveViewMode) {
       case "json":
@@ -862,7 +862,12 @@ export default function Explorer() {
                             <button type="button" className={`px-2 py-1 text-[10px] font-medium transition-colors ${s.docCodeFormat === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocCodeFormat("json")}>Strict JSON</button>
                             <button type="button" className={`px-2 py-1 text-[10px] font-medium transition-colors ${s.docCodeFormat === "mongosh" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`} onClick={() => s.setDocCodeFormat("mongosh")} title="mongosh / CLI style">mongosh (CLI)</button>
                           </div>
-                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground" onClick={() => s.setDocCodeEditorsExpanded((e) => !e)}>
+                          <span className="text-[10px] text-muted-foreground ml-1">
+                            {s.docCodeFormat === "mongosh"
+                              ? "Supports shell query syntax (unquoted keys, ObjectId, ISODate)"
+                              : "Requires strict double-quoted keys JSON format"}
+                          </span>
+                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px] gap-1 text-muted-foreground ml-auto" onClick={() => s.setDocCodeEditorsExpanded((e) => !e)}>
                             <ChevronsDownUp className="w-3 h-3" />
                             {s.docCodeEditorsExpanded ? LABEL.COMPACT : LABEL.EXPAND}
                           </Button>
@@ -875,9 +880,9 @@ export default function Explorer() {
                         )}
                         <div className="flex flex-col gap-2">
                           <QueryEditor
-                            value={s.filterStr === "{}" ? "" : s.filterStr}
+                            value={s.filterStr === "{}" ? (s.docCodeFormat === "mongosh" ? `db.${collection || "collection"}.find({ })` : "") : s.filterStr}
                             onChange={(val) => s.setFilterStr(val || "{}")}
-                            placeholder={s.docCodeFormat === "mongosh" ? '{ status: "active" }' : 'Filter: { "field": "value" }'}
+                            placeholder={s.docCodeFormat === "mongosh" ? `db.${collection || "collection"}.find({ status: "active" })` : '{ "status": "active" }'}
                             fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
                             height={s.docCodeEditorsExpanded ? (s.docCodeFormat === "mongosh" ? "260px" : "220px") : (s.docCodeFormat === "mongosh" ? "100px" : "88px")}
                             className="flex-1 min-w-0 w-full" mode="filter"
@@ -888,7 +893,7 @@ export default function Explorer() {
                             <QueryEditor
                               value={s.sortStr === "{}" ? "" : s.sortStr}
                               onChange={(val) => s.setSortStr(val || "{}")}
-                              placeholder={s.docCodeFormat === "mongosh" ? "{ createdAt: -1 }" : 'Sort: { "field": -1 }'}
+                              placeholder={s.docCodeFormat === "mongosh" ? '{ createdAt: -1 }' : '{ "createdAt": -1 }'}
                               fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
                               height={s.docCodeEditorsExpanded ? (s.docCodeFormat === "mongosh" ? "120px" : "100px") : (s.docCodeFormat === "mongosh" ? "72px" : "64px")}
                               className="flex-1 min-w-0 w-full min-[520px]:max-w-xs" mode="sort"
@@ -985,13 +990,25 @@ export default function Explorer() {
                         <span className="text-[10px] font-medium text-violet-400">Comparing 2 documents</span>
                         <Button variant="ghost" size="sm" className="h-5 text-[9px] ml-auto" onClick={() => { s.setCompareDocs([]); s.setCompareMode(false); }}><X className="w-2.5 h-2.5" /> {LABEL.CLOSE}</Button>
                       </div>
-                      <div className="grid grid-cols-2 gap-0 max-h-[min(50vh,28rem)] overflow-auto">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-0 max-h-[min(50vh,28rem)] overflow-auto">
                         {allKeys.map((key) => {
                           const vA = JSON.stringify(docA[key] ?? null), vB = JSON.stringify(docB[key] ?? null), isDiff = vA !== vB;
                           return (
                             <div key={key} className="contents">
-                              <div className={`px-4 py-0.5 text-[10px] font-mono border-b border-r border-border/20 ${isDiff ? "bg-red-500/5" : ""}`}><span className="text-muted-foreground mr-1">{key}:</span><span className={isDiff ? "text-red-400" : ""}>{String(docA[key] ?? "—").slice(0, 60)}</span></div>
-                              <div className={`px-4 py-0.5 text-[10px] font-mono border-b border-border/20 ${isDiff ? "bg-green-500/5" : ""}`}><span className="text-muted-foreground mr-1">{key}:</span><span className={isDiff ? "text-green-400" : ""}>{String(docB[key] ?? "—").slice(0, 60)}</span></div>
+                              <div className={`px-4 py-1 text-[10px] font-mono border-b border-r-0 md:border-r border-border/20 flex items-start gap-1 ${isDiff ? "bg-red-500/5" : ""}`}>
+                                <span className="text-red-400/80 shrink-0 font-bold select-none font-mono w-2 text-center">-</span>
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-muted-foreground mr-1">{key}:</span>
+                                  <span className={isDiff ? "text-red-400" : ""}>{String(docA[key] ?? "—").slice(0, 60)}</span>
+                                </div>
+                              </div>
+                              <div className={`px-4 py-1 text-[10px] font-mono border-b border-border/20 flex items-start gap-1 ${isDiff ? "bg-green-500/5" : ""}`}>
+                                <span className="text-green-400/80 shrink-0 font-bold select-none font-mono w-2 text-center">+</span>
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-muted-foreground mr-1">{key}:</span>
+                                  <span className={isDiff ? "text-green-400" : ""}>{String(docB[key] ?? "—").slice(0, 60)}</span>
+                                </div>
+                              </div>
                             </div>
                           );
                         })}
@@ -1021,21 +1038,45 @@ export default function Explorer() {
 
                 {/* Pagination */}
                 {docsData && docsData.totalPages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-card shrink-0">
+                  <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-card shrink-0 gap-3">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{formatPageRange(s.page, s.limit, docsData.total)}</span>
-                      {docsData.executionTimeMs !== undefined && <Badge variant="outline" className="text-xs">{docsData.executionTimeMs}ms</Badge>}
+                      <span className="text-[11px] sm:text-xs text-muted-foreground font-medium shrink-0">
+                        {formatPageRange(s.page, s.limit, docsData.total)}
+                      </span>
+                      {!isMobile && docsData.executionTimeMs !== undefined && (
+                        <Badge variant="outline" className="text-xs">{docsData.executionTimeMs}ms</Badge>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Select value={String(s.limit)} onValueChange={(v) => { s.setLimit(Number(v)); s.setPage(1); }}>
-                        <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {[10, 20, 50, 100, 200, 500].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={s.page <= 1} onClick={() => s.setPage((p) => Math.max(1, p - 1))}><ChevronLeft className="w-4 h-4" /></Button>
-                      <span className="text-xs">{s.page} / {docsData.totalPages}</span>
-                      <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={s.page >= docsData.totalPages} onClick={() => s.setPage((p) => p + 1)}><ChevronRightIcon className="w-4 h-4" /></Button>
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      {!isMobile && (
+                        <Select value={String(s.limit)} onValueChange={(v) => { s.setLimit(Number(v)); s.setPage(1); }}>
+                          <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {[10, 20, 50, 100, 200, 500].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 sm:h-7 sm:w-7 p-0 rounded-lg"
+                        disabled={s.page <= 1}
+                        onClick={() => s.setPage((p) => Math.max(1, p - 1))}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <span className="text-xs font-medium tabular-nums min-w-[32px] text-center">
+                        {s.page} / {docsData.totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 sm:h-7 sm:w-7 p-0 rounded-lg"
+                        disabled={s.page >= docsData.totalPages}
+                        onClick={() => s.setPage((p) => p + 1)}
+                      >
+                        <ChevronRightIcon className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -1343,13 +1384,18 @@ export default function Explorer() {
                     </button>
                   </div>
                 </div>
+                <p className="text-[10px] text-muted-foreground -mt-1">
+                  {s.docCodeFormat === "mongosh"
+                    ? "Supports shell query syntax (unquoted keys, ObjectId, ISODate)"
+                    : "Requires strict double-quoted keys JSON format"}
+                </p>
 
                 <div className="space-y-2">
                   <label className="text-[10px] text-muted-foreground uppercase font-semibold">Filter Specification</label>
                   <QueryEditor
-                    value={s.filterStr === "{}" ? "" : s.filterStr}
+                    value={s.filterStr === "{}" ? (s.docCodeFormat === "mongosh" ? `db.${collection || "collection"}.find({ })` : "") : s.filterStr}
                     onChange={(val) => s.setFilterStr(val || "{}")}
-                    placeholder={s.docCodeFormat === "mongosh" ? '{ status: "active" }' : 'Filter: { "field": "value" }'}
+                    placeholder={s.docCodeFormat === "mongosh" ? `db.${collection || "collection"}.find({ status: "active" })` : '{ "status": "active" }'}
                     fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
                     height="100px"
                     className="w-full"
@@ -1362,7 +1408,7 @@ export default function Explorer() {
                   <QueryEditor
                     value={s.sortStr === "{}" ? "" : s.sortStr}
                     onChange={(val) => s.setSortStr(val || "{}")}
-                    placeholder={s.docCodeFormat === "mongosh" ? "{ createdAt: -1 }" : 'Sort: { "field": -1 }'}
+                    placeholder={s.docCodeFormat === "mongosh" ? '{ createdAt: -1 }' : '{ "createdAt": -1 }'}
                     fields={schemaData?.fields?.map((f: any) => ({ path: f.path, type: f.types?.[0]?.type })) || []}
                     height="80px"
                     className="w-full"
@@ -1407,18 +1453,38 @@ export default function Explorer() {
 
       {/* Insert */}
       <Dialog open={s.showInsertModal} onOpenChange={s.setShowInsertModal}>
-        <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{MODAL_TITLE.INSERT_DOCUMENT}</DialogTitle></DialogHeader>
-          <MonacoJsonEditor value={s.insertJson} onChange={(val) => s.setInsertJson(val || "")} height="260px" onSave={docActions.handleInsert} />
-          <DialogFooter><Button variant="outline" onClick={() => s.setShowInsertModal(false)}>{LABEL.CANCEL}</Button><Button onClick={docActions.handleInsert} disabled={docActions.insertDoc.isPending} data-testid="button-insert-confirm">{docActions.insertDoc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : LABEL.INSERT}</Button></DialogFooter>
+        <DialogContent className="max-w-lg w-full h-full md:h-auto max-h-screen md:max-h-[85vh] rounded-none md:rounded-lg p-0 flex flex-col gap-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border/40 shrink-0">
+            <DialogTitle>{MODAL_TITLE.INSERT_DOCUMENT}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 p-4 overflow-y-auto min-h-0 flex flex-col">
+            <MonacoJsonEditor value={s.insertJson} onChange={(val) => s.setInsertJson(val || "")} height={isMobileOrTablet ? "100%" : "300px"} onSave={docActions.handleInsert} />
+          </div>
+          <DialogFooter className="p-4 border-t border-border/40 shrink-0 flex flex-row justify-end gap-2 bg-muted/10">
+            <Button variant="outline" className="flex-1 md:flex-none" onClick={() => s.setShowInsertModal(false)}>{LABEL.CANCEL}</Button>
+            <Button className="flex-1 md:flex-none" onClick={docActions.handleInsert} disabled={docActions.insertDoc.isPending} data-testid="button-insert-confirm">
+              {docActions.insertDoc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : LABEL.INSERT}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Edit */}
       <Dialog open={s.showEditModal} onOpenChange={s.setShowEditModal}>
-        <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{MODAL_TITLE.EDIT_DOCUMENT}</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground font-mono">_id: {s.editDocId}</p>
-          <MonacoJsonEditor value={s.editJson} onChange={(val) => s.setEditJson(val || "")} height="260px" onSave={docActions.handleEditSave} />
-          <DialogFooter><Button variant="outline" onClick={() => s.setShowEditModal(false)}>{LABEL.CANCEL}</Button><Button onClick={docActions.handleEditSave} disabled={docActions.updateDoc.isPending}>{docActions.updateDoc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : LABEL.SAVE}</Button></DialogFooter>
+        <DialogContent className="max-w-lg w-full h-full md:h-auto max-h-screen md:max-h-[85vh] rounded-none md:rounded-lg p-0 flex flex-col gap-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border/40 shrink-0">
+            <DialogTitle>{MODAL_TITLE.EDIT_DOCUMENT}</DialogTitle>
+            <p className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">_id: {s.editDocId}</p>
+          </DialogHeader>
+          <div className="flex-1 p-4 overflow-y-auto min-h-0 flex flex-col">
+            <MonacoJsonEditor value={s.editJson} onChange={(val) => s.setEditJson(val || "")} height={isMobileOrTablet ? "100%" : "300px"} onSave={docActions.handleEditSave} />
+          </div>
+          <DialogFooter className="p-4 border-t border-border/40 shrink-0 flex flex-row justify-end gap-2 bg-muted/10">
+            <Button variant="outline" className="flex-1 md:flex-none" onClick={() => s.setShowEditModal(false)}>{LABEL.CANCEL}</Button>
+            <Button className="flex-1 md:flex-none" onClick={docActions.handleEditSave} disabled={docActions.updateDoc.isPending}>
+              {docActions.updateDoc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : LABEL.SAVE}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1436,13 +1502,23 @@ export default function Explorer() {
 
       {/* Bulk Update */}
       <Dialog open={s.showBulkUpdateModal} onOpenChange={s.setShowBulkUpdateModal}>
-        <DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{MODAL_TITLE.BULK_UPDATE_DOCUMENTS}</DialogTitle></DialogHeader>
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">{CONFIRM_MSG.BULK_UPDATE_INFO(s.selectedDocs.size)}</p>
-            <p className="text-[10px] text-amber-500 bg-amber-500/5 border border-amber-500/10 px-2 py-1 rounded">{CONFIRM_MSG.BULK_UPDATE_WARNING}</p>
-            <MonacoJsonEditor value={s.bulkUpdateJson} onChange={(val) => s.setBulkUpdateJson(val || "")} height="240px" onSave={docActions.handleBulkUpdate} />
+        <DialogContent className="max-w-lg w-full h-full md:h-auto max-h-screen md:max-h-[85vh] rounded-none md:rounded-lg p-0 flex flex-col gap-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border/40 shrink-0">
+            <DialogTitle>{MODAL_TITLE.BULK_UPDATE_DOCUMENTS}</DialogTitle>
+            <div className="space-y-1 mt-1">
+              <p className="text-[10px] text-muted-foreground">{CONFIRM_MSG.BULK_UPDATE_INFO(s.selectedDocs.size)}</p>
+              <p className="text-[9px] text-amber-500 bg-amber-500/5 border border-amber-500/10 px-2 py-0.5 rounded">{CONFIRM_MSG.BULK_UPDATE_WARNING}</p>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 p-4 overflow-y-auto min-h-0 flex flex-col">
+            <MonacoJsonEditor value={s.bulkUpdateJson} onChange={(val) => s.setBulkUpdateJson(val || "")} height={isMobileOrTablet ? "100%" : "240px"} onSave={docActions.handleBulkUpdate} />
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => s.setShowBulkUpdateModal(false)}>{LABEL.CANCEL}</Button><Button onClick={docActions.handleBulkUpdate} disabled={docActions.bulkOp.isPending} className="bg-violet-600 hover:bg-violet-700 text-white">{docActions.bulkOp.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : `Update ${s.selectedDocs.size} Docs`}</Button></DialogFooter>
+          <DialogFooter className="p-4 border-t border-border/40 shrink-0 flex flex-row justify-end gap-2 bg-muted/10">
+            <Button variant="outline" className="flex-1 md:flex-none" onClick={() => s.setShowBulkUpdateModal(false)}>{LABEL.CANCEL}</Button>
+            <Button onClick={docActions.handleBulkUpdate} disabled={docActions.bulkOp.isPending} className="flex-1 md:flex-none bg-violet-600 hover:bg-violet-700 text-white">
+              {docActions.bulkOp.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : `Update ${s.selectedDocs.size} Docs`}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1657,32 +1733,34 @@ export default function Explorer() {
           </DialogHeader>
           <div className="space-y-4 py-2 text-xs">
             {/* View Mode */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Display View</span>
-              <div className="flex items-center rounded-md border border-border/50 overflow-hidden w-full bg-muted/40">
-                <button
-                  type="button"
-                  className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                  onClick={() => s.setViewMode("json")}
-                >
-                  JSON
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "card" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                  onClick={() => s.setViewMode("card")}
-                >
-                  Cards
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "spreadsheet" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
-                  onClick={() => s.setViewMode("spreadsheet")}
-                >
-                  Spreadsheet
-                </button>
+            {!isMobile && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">Display View</span>
+                <div className="flex items-center rounded-md border border-border/50 overflow-hidden w-full bg-muted/40">
+                  <button
+                    type="button"
+                    className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "json" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                    onClick={() => s.setViewMode("json")}
+                  >
+                    JSON
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "card" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                    onClick={() => s.setViewMode("card")}
+                  >
+                    Cards
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 py-2 text-xs font-medium transition-colors ${s.viewMode === "spreadsheet" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                    onClick={() => s.setViewMode("spreadsheet")}
+                  >
+                    Spreadsheet
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Compare Mode */}
             <div className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-muted/15">
