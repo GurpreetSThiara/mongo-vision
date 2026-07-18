@@ -37,6 +37,10 @@ interface Relationship {
   type: "reference" | "embedded" | "many-to-many" | "virtual";
 }
 
+// Matches the full-detail card's `w-60` Tailwind width; height is an estimate since it varies with field count.
+const CARD_WIDTH = 240;
+const CARD_HEIGHT_ESTIMATE = 160;
+
 interface NoSqlSchemaBuilderProps {
   connectionId: string;
   database: string;
@@ -178,18 +182,17 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   // Dragger Mouse Move listener
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (draggingColId) {
-        const currentZoom = zoom;
-        setPositions((prev) => {
-          const pos = prev[draggingColId] || { x: 0, y: 0 };
-          return {
-            ...prev,
-            [draggingColId]: {
-              x: Math.max(10, pos.x + e.movementX / currentZoom),
-              y: Math.max(10, pos.y + e.movementY / currentZoom),
-            },
-          };
-        });
+      if (draggingColId && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const pointerWorldX = (e.clientX - rect.left - pan.x) / zoom;
+        const pointerWorldY = (e.clientY - rect.top - pan.y) / zoom;
+        setPositions((prev) => ({
+          ...prev,
+          [draggingColId]: {
+            x: Math.max(10, pointerWorldX - dragOffset.current.x),
+            y: Math.max(10, pointerWorldY - dragOffset.current.y),
+          },
+        }));
       } else if (isPanning) {
         setPan({
           x: e.clientX - panStart.current.x,
@@ -241,12 +244,25 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     };
   }, [draggingColId, isPanning, activeLinkSource, pan, zoom]);
 
-  // Mouse Wheel zooms in and out
+  // Mouse Wheel zooms in and out, anchored on the cursor position
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+
     const factor = 0.08;
-    const nextZoom = e.deltaY < 0 ? zoom + factor : zoom - factor;
-    setZoom(Math.min(2, Math.max(0.3, nextZoom)));
+    const nextZoom = Math.min(2, Math.max(0.3, e.deltaY < 0 ? zoom + factor : zoom - factor));
+
+    const worldX = (cursorX - pan.x) / zoom;
+    const worldY = (cursorY - pan.y) / zoom;
+
+    setZoom(nextZoom);
+    setPan({
+      x: cursorX - worldX * nextZoom,
+      y: cursorY - worldY * nextZoom,
+    });
   };
 
   // Card Mouse Down selection and dragging
@@ -256,7 +272,12 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     setSelectedColId(colId);
     setDraggingColId(colId);
     const pos = positions[colId] || { x: 0, y: 0 };
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+    if (canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const pointerWorldX = (e.clientX - rect.left - pan.x) / zoom;
+      const pointerWorldY = (e.clientY - rect.top - pan.y) / zoom;
+      dragOffset.current = { x: pointerWorldX - pos.x, y: pointerWorldY - pos.y };
+    }
   };
 
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
@@ -743,9 +764,15 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
               key={col.id}
               onClick={() => {
                 setSelectedColId(col.id);
-                // Center pan view on card
+                // Center the canvas viewport on this card
                 const pos = positions[col.id] || { x: 50, y: 50 };
-                setPan({ x: 100 - pos.x * zoom, y: 100 - pos.y * zoom });
+                const rect = canvasRef.current?.getBoundingClientRect();
+                const viewportWidth = rect?.width ?? 800;
+                const viewportHeight = rect?.height ?? 600;
+                setPan({
+                  x: viewportWidth / 2 - (pos.x + CARD_WIDTH / 2) * zoom,
+                  y: viewportHeight / 2 - (pos.y + CARD_HEIGHT_ESTIMATE / 2) * zoom,
+                });
               }}
               className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
                 selectedColId === col.id ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
