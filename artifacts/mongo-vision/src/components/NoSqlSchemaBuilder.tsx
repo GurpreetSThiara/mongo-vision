@@ -41,6 +41,34 @@ interface Relationship {
 const CARD_WIDTH = 240;
 const CARD_HEIGHT_ESTIMATE = 160;
 
+const CARD_HEADER_HEIGHT = 45;
+const FIELD_ROW_HEIGHT = 26;
+const NESTED_CHILD_ROW_HEIGHT = 18;
+
+function isSameLink(a: Relationship | null, b: Relationship): boolean {
+  return a !== null && a.from === b.from && a.field === b.field && a.to === b.to;
+}
+
+/** Vertical offset (from the card's top) of a field's link anchor, accounting for expanded nested-object rows above it. */
+function getFieldYOffset(
+  col: CollectionEntity,
+  fieldName: string,
+  collapsedFields: Record<string, boolean>
+): number {
+  let offset = CARD_HEADER_HEIGHT;
+  for (const field of col.fields) {
+    if (field.name === fieldName) {
+      return offset + FIELD_ROW_HEIGHT / 2;
+    }
+    offset += FIELD_ROW_HEIGHT;
+    const isCollapsed = collapsedFields[`${col.id}.${field.name}`] || false;
+    if (field.children && !isCollapsed) {
+      offset += field.children.length * NESTED_CHILD_ROW_HEIGHT;
+    }
+  }
+  return offset;
+}
+
 interface NoSqlSchemaBuilderProps {
   connectionId: string;
   database: string;
@@ -126,11 +154,15 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         cols.forEach((col) => {
           col.fields.forEach((field) => {
             const fName = field.name.toLowerCase();
-            if (fName !== "_id" && (fName.endsWith("id") || fName.endsWith("_id"))) {
+            // Require the "_id" / camelCase "Id" reference convention (userId, user_id) rather than a
+            // bare "ends with id" check, which false-positives on words like "paid", "void", "grid", "uuid".
+            const isSnakeCaseRef = fName !== "_id" && fName.endsWith("_id");
+            const isCamelCaseRef = /[a-z0-9]Id$/.test(field.name);
+            if (isSnakeCaseRef || isCamelCaseRef) {
               let prefix = field.name;
-              if (prefix.toLowerCase().endsWith("_id")) {
+              if (fName.endsWith("_id")) {
                 prefix = prefix.slice(0, -3);
-              } else if (prefix.toLowerCase().endsWith("id")) {
+              } else {
                 prefix = prefix.slice(0, -2);
               }
 
@@ -919,8 +951,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             }}
             className="absolute inset-0 w-[2400px] h-[1800px] pointer-events-none"
           >
-            {/* SVG lines for relationships */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+            {/* SVG lines for relationships — rendered above the cards layer (z-30 > z-20) so hover
+                tooltips and the delete button stay clickable even where a curve passes under a card */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none z-30">
               <defs>
                 <marker
                   id="builder-arrow"
@@ -942,8 +975,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
                 const col = collections.find((c) => c.id === link.from);
                 const targetCol = collections.find((c) => c.id === link.to);
-                const fieldIndex = col ? col.fields.findIndex((f) => f.name === link.field) : 0;
-                const fieldYOffset = 45 + fieldIndex * 26 + 13;
+                const fieldYOffset = col ? getFieldYOffset(col, link.field, collapsedFields) : CARD_HEADER_HEIGHT;
 
                 const startX = fromPos.x + 240;
                 const startY = fromPos.y + fieldYOffset;
@@ -955,7 +987,8 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 const cp2x = endX - 90;
                 const cp2y = endY;
 
-                const isHovered = hoveredLink?.from === link.from && hoveredLink?.field === link.field;
+                const isHovered = isSameLink(hoveredLink, link);
+                const isSelected = isSameLink(selectedLink, link);
 
                 return (
                   <g
@@ -975,15 +1008,15 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                       d={`M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`}
                       fill="none"
                       stroke="var(--primary)"
-                      strokeWidth={selectedLink === link ? "8" : "6"}
-                      className={`transition-opacity ${selectedLink === link ? "opacity-35" : isHovered ? "opacity-20" : "opacity-0"}`}
+                      strokeWidth={isSelected ? "8" : "6"}
+                      className={`transition-opacity ${isSelected ? "opacity-35" : isHovered ? "opacity-20" : "opacity-0"}`}
                     />
                     {/* Core connection stroke */}
                     <path
                       d={`M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`}
                       fill="none"
                       stroke={
-                        selectedLink === link
+                        isSelected
                           ? "rgba(168, 85, 247, 0.95)"
                           : link.type === "embedded"
                           ? "rgba(156, 163, 175, 0.6)"
@@ -996,7 +1029,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                           : "rgba(139, 92, 246, 0.45)"
                       }
                       strokeWidth={
-                        selectedLink === link
+                        isSelected
                           ? "3"
                           : link.type === "many-to-many"
                           ? "4"
@@ -1010,7 +1043,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                     />
 
                     {/* Floating Info card overlay */}
-                    {(isHovered || selectedLink === link) && (
+                    {(isHovered || isSelected) && (
                       <foreignObject
                         x={(startX + endX) / 2 - 80}
                         y={(startY + endY) / 2 - 40}
@@ -1048,7 +1081,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                               )
                             );
                             setHoveredLink(null);
-                            if (selectedLink === link) setSelectedLink(null);
+                            if (isSelected) setSelectedLink(null);
                           }}
                           className="h-6 w-6 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center pointer-events-auto shadow border border-red-500"
                           title="Remove relationship"
@@ -1067,8 +1100,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                   const fromPos = positions[activeLinkSource.colId];
                   if (!fromPos) return null;
                   const col = collections.find((c) => c.id === activeLinkSource.colId);
-                  const fieldIndex = col ? col.fields.findIndex((f) => f.name === activeLinkSource.field) : 0;
-                  const fieldYOffset = 45 + fieldIndex * 26 + 13;
+                  const fieldYOffset = col
+                    ? getFieldYOffset(col, activeLinkSource.field, collapsedFields)
+                    : CARD_HEADER_HEIGHT;
 
                   return (
                     <line
@@ -1098,6 +1132,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                   return (
                     <div
                       key={col.id}
+                      data-entity-id={col.id}
                       style={{ left: pos.x + 100, top: pos.y + 40 }}
                       className="absolute w-8 h-8 rounded-full border border-white/20 shadow-lg pointer-events-auto cursor-pointer flex items-center justify-center bg-zinc-900"
                       onClick={() => setSelectedColId(col.id)}
@@ -1112,6 +1147,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                   return (
                     <div
                       key={col.id}
+                      data-entity-id={col.id}
                       style={{ left: pos.x + 40, top: pos.y + 30 }}
                       onClick={() => setSelectedColId(col.id)}
                       className={`absolute px-4 py-2 border rounded-full shadow-lg pointer-events-auto cursor-pointer font-bold text-sm font-mono text-center flex items-center gap-2 ${
@@ -1129,6 +1165,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                   return (
                     <div
                       key={col.id}
+                      data-entity-id={col.id}
                       style={{ left: pos.x, top: pos.y }}
                       onClick={() => setSelectedColId(col.id)}
                       className={`absolute w-60 border rounded-lg bg-card shadow-lg pointer-events-auto cursor-pointer ${
@@ -1198,7 +1235,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                 {/* Drag Relationship anchor */}
                                 <span
                                   onMouseDown={(e) => startDrawingLink(col.id, field.name, e)}
-                                  className="w-2.5 h-2.5 rounded-full border border-purple-500 bg-purple-500/20 hover:bg-purple-500 cursor-crosshair shrink-0 pointer-events-auto"
+                                  className={`w-2.5 h-2.5 rounded-full border border-purple-500 hover:bg-purple-500 cursor-crosshair shrink-0 pointer-events-auto ${
+                                    isLinkSource ? "bg-purple-500" : "bg-purple-500/20"
+                                  }`}
                                   title="Drag reference line"
                                 />
                                 {/* Collapse chevron for nested object */}
