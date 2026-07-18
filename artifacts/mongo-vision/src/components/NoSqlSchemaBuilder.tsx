@@ -23,7 +23,7 @@ interface CollectionEntity {
   fields: SchemaField[];
   validationRules?: Record<string, { required?: boolean; unique?: boolean; min?: number; max?: number; pattern?: string }>;
   indexes?: { name: string; keys: Record<string, number | string>; unique?: boolean; sparse?: boolean; ttl?: number }[];
-  stats?: Record<string, { min?: number; max?: number; avg?: number; topValues?: { val: string; count: number }[] }>;
+  stats?: Record<string, { min?: number; max?: number; avg?: number; topValues?: { val: string; percentage: number }[] }>;
 }
 
 interface Relationship {
@@ -89,61 +89,16 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         if (!active) return;
         const rawCols = data.collections || [];
 
-        // Synthesize detailed NoSQL collection schema cards with stats and validation configurations
-        const cols: CollectionEntity[] = rawCols.map((c: any, idx: number) => {
-          // Pre-populate mock stats and validations to give Figma-like richness
-          const validationRules: Record<string, any> = {};
-          const stats: Record<string, any> = {};
-          const indexes: any[] = [{ name: "_id_", keys: { _id: 1 }, unique: true }];
-
-          c.fields.forEach((f: any) => {
-            // Validation default mock
-            if (f.name === "email") {
-              validationRules[f.name] = { required: true, unique: true, pattern: "^\\S+@\\S+\\.\\S+$" };
-            } else if (f.name === "_id") {
-              validationRules[f.name] = { required: true };
-            } else {
-              validationRules[f.name] = { required: Math.random() > 0.5 };
-            }
-
-            // Stats default mock
-            if (f.type === "Number") {
-              stats[f.name] = { min: 5, max: 2500, avg: 412 };
-            } else if (f.type === "String" && f.name !== "_id" && f.name !== "email") {
-              stats[f.name] = {
-                topValues: [
-                  { val: "active", count: 72 },
-                  { val: "pending", count: 18 },
-                  { val: "inactive", count: 10 }
-                ]
-              };
-            }
-          });
-
-          // Compound indexes mock
-          if (c.fields.some((f: any) => f.name === "createdAt")) {
-            indexes.push({ name: "createdAt_ttl", keys: { createdAt: 1 }, ttl: 3600 });
-          }
-
-          const colors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
-          return {
-            name: c.name,
-            documentCount: 1000 + Math.floor(Math.random() * 5000000),
-            color: colors[idx % colors.length],
-            fields: c.fields.map((f: any) => ({
-              name: f.name,
-              type: f.type,
-              children: f.name === "address" ? [
-                { name: "street", type: "String" },
-                { name: "city", type: "String" },
-                { name: "zip", type: "Number" }
-              ] : undefined
-            })),
-            validationRules,
-            indexes,
-            stats,
-          };
-        });
+        const colors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+        const cols: CollectionEntity[] = rawCols.map((c: any, idx: number) => ({
+          name: c.name,
+          documentCount: c.documentCount ?? 0,
+          color: colors[idx % colors.length],
+          fields: c.fields ?? [],
+          validationRules: c.validationRules ?? {},
+          indexes: c.indexes ?? [{ name: "_id_", keys: { _id: 1 }, unique: true }],
+          stats: c.stats ?? {},
+        }));
 
         setCollections(cols);
         if (cols.length > 0) setSelectedCol(cols[0].name);
@@ -1594,10 +1549,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                 <div key={val.val} className="space-y-0.5">
                                   <div className="flex justify-between text-[9px] leading-none">
                                     <span className="text-emerald-400 truncate max-w-[65%]">"{val.val}"</span>
-                                    <span className="text-muted-foreground">{val.count}%</span>
+                                    <span className="text-muted-foreground">{val.percentage}%</span>
                                   </div>
                                   <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
-                                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${val.count}%` }} />
+                                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${val.percentage}%` }} />
                                   </div>
                                 </div>
                               ))}

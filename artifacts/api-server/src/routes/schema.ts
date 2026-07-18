@@ -3,7 +3,7 @@ import { getSession } from "../lib/mongodb.js";
 
 const router = Router();
 
-type SchemaField = {
+export type SchemaField = {
   name: string;
   path: string;
   type: string;
@@ -16,7 +16,7 @@ type SchemaField = {
   sampleValues?: unknown[];
 };
 
-function inferType(value: unknown): string {
+export function inferType(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
   const t = typeof value;
@@ -28,7 +28,7 @@ function inferType(value: unknown): string {
   return t;
 }
 
-function analyzeDocuments(
+export function analyzeDocuments(
   docs: Record<string, unknown>[],
   prefix = ""
 ): SchemaField[] {
@@ -87,7 +87,7 @@ function analyzeDocuments(
       sampleValues: stat.samples.slice(0, 3),
     };
 
-    if (isNested && stat.children && stat.children.length > 0) {
+    if ((isNested || isArray) && stat.children && stat.children.length > 0) {
       field.children = analyzeDocuments(stat.children, fullKey);
     }
 

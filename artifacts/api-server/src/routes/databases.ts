@@ -1,7 +1,31 @@
 import { Router } from "express";
 import { getSession } from "../lib/mongodb.js";
+import { analyzeDocuments, type SchemaField } from "./schema.js";
 
 const router = Router();
+
+const SCHEMA_LINKS_SAMPLE_SIZE = 50;
+const TOP_VALUES_LIMIT = 3;
+
+function capitalize(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function toClientField(field: SchemaField): {
+  name: string;
+  type: string;
+  nullable?: boolean;
+  isArray?: boolean;
+  children?: ReturnType<typeof toClientField>[];
+} {
+  return {
+    name: field.name,
+    type: capitalize(field.type),
+    nullable: field.nullable,
+    isArray: field.isArray,
+    children: field.children?.map(toClientField),
+  };
+}
 
 router.get("/connections/:connectionId/databases", async (req, res) => {
   const { connectionId } = req.params;
@@ -104,37 +128,115 @@ router.get("/connections/:connectionId/databases/:dbName/schema-links", async (r
 
     const result = await Promise.all(
       collections.map(async (colInfo) => {
+        const col = db.collection(colInfo.name);
         try {
-          const col = db.collection(colInfo.name);
-          const sampleDoc = await col.findOne();
-          const fields: { name: string; type: string }[] = [];
+          const [documentCount, sampleDocs, indexes] = await Promise.all([
+            col.estimatedDocumentCount(),
+            col.aggregate([{ $sample: { size: SCHEMA_LINKS_SAMPLE_SIZE } }]).toArray(),
+            col.indexes(),
+          ]);
 
-          if (sampleDoc) {
-            Object.entries(sampleDoc).forEach(([key, val]) => {
-              let t: string = typeof val;
-              if (val === null) t = "null";
-              else if (val instanceof Date) t = "date";
-              else if (typeof val === "object" && (val as any)._bsontype === "ObjectID") t = "objectId";
-              else if (typeof val === "object" && (val as any)._bsontype) t = (val as any)._bsontype.toLowerCase();
-              else if (Array.isArray(val)) t = "array";
-              else if (typeof val === "object") t = "object";
+          const sanitizedDocs = sampleDocs.map((d) => ({ ...d, _id: d._id?.toString() })) as Record<
+            string,
+            unknown
+          >[];
 
-              // Capitalize
-              const typeName = t.charAt(0).toUpperCase() + t.slice(1);
-              fields.push({ name: key, type: typeName });
-            });
-          } else {
-            fields.push({ name: "_id", type: "ObjectId" });
+          const analyzed =
+            sanitizedDocs.length > 0
+              ? analyzeDocuments(sanitizedDocs)
+              : [
+                  {
+                    name: "_id",
+                    path: "_id",
+                    type: "objectId",
+                    types: ["objectId"],
+                    prevalence: 1,
+                    nullable: false,
+                    isArray: false,
+                    isNested: false,
+                  } satisfies SchemaField,
+                ];
+
+          const validatorSchema = (colInfo.options as { validator?: { $jsonSchema?: { required?: unknown } } })
+            ?.validator?.$jsonSchema;
+          const requiredFields = new Set<string>(
+            Array.isArray(validatorSchema?.required) ? (validatorSchema.required as string[]) : []
+          );
+
+          const uniqueSingleFieldNames = new Set(
+            indexes
+              .filter((idx) => idx.unique && Object.keys(idx.key).length === 1)
+              .map((idx) => Object.keys(idx.key)[0])
+          );
+
+          const validationRules: Record<string, { required?: boolean; unique?: boolean }> = {};
+          const stats: Record<
+            string,
+            { min?: number; max?: number; avg?: number; topValues?: { val: string; percentage: number }[] }
+          > = {};
+
+          for (const field of analyzed) {
+            const rules: { required?: boolean; unique?: boolean } = {};
+            if (field.name === "_id" || requiredFields.has(field.name)) rules.required = true;
+            if (uniqueSingleFieldNames.has(field.name)) rules.unique = true;
+            if (Object.keys(rules).length > 0) validationRules[field.name] = rules;
+
+            if (field.type === "number") {
+              const numericValues = sanitizedDocs
+                .map((d) => d[field.name])
+                .filter((v): v is number => typeof v === "number");
+              if (numericValues.length > 0) {
+                stats[field.name] = {
+                  min: Math.min(...numericValues),
+                  max: Math.max(...numericValues),
+                  avg:
+                    Math.round(
+                      (numericValues.reduce((sum, v) => sum + v, 0) / numericValues.length) * 100
+                    ) / 100,
+                };
+              }
+            } else if (field.type === "string" && field.name !== "_id") {
+              const valueCounts = new Map<string, number>();
+              let totalSeen = 0;
+              for (const doc of sanitizedDocs) {
+                const val = doc[field.name];
+                if (typeof val === "string") {
+                  valueCounts.set(val, (valueCounts.get(val) || 0) + 1);
+                  totalSeen++;
+                }
+              }
+              if (totalSeen > 0) {
+                const topValues = Array.from(valueCounts.entries())
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, TOP_VALUES_LIMIT)
+                  .map(([val, count]) => ({ val, percentage: Math.round((count / totalSeen) * 100) }));
+                if (topValues.length > 0) stats[field.name] = { topValues };
+              }
+            }
           }
 
           return {
             name: colInfo.name,
-            fields,
+            documentCount,
+            fields: analyzed.map(toClientField),
+            validationRules,
+            indexes: indexes.map((idx) => ({
+              name: idx.name ?? Object.keys(idx.key).join("_"),
+              keys: idx.key as Record<string, number | string>,
+              unique: idx.unique,
+              sparse: idx.sparse,
+              ttl: idx.expireAfterSeconds,
+            })),
+            stats,
           };
         } catch {
           return {
             name: colInfo.name,
+            documentCount: 0,
             fields: [{ name: "_id", type: "ObjectId" }],
+            validationRules: {},
+            indexes: [{ name: "_id_", keys: { _id: 1 }, unique: true }],
+            stats: {},
           };
         }
       })
