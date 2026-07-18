@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Loader2, Plus, Database, Move, Compass, ZoomIn, ZoomOut, Maximize2, Trash2, Edit2, Check, X,
-  Search, Shield, Settings, Activity, Clock, BookmarkCheck, FileJson, Play, Filter,
-  ArrowRight, ShieldAlert, Sliders, ChevronDown, ChevronRight, BarChart3, HelpCircle, Terminal, Sparkles
+  Loader2, Plus, Move, ZoomIn, ZoomOut, Trash2, Check, X,
+  Search, ShieldAlert, ChevronDown, ChevronRight, Sparkles
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 
 interface SchemaField {
   name: string;
@@ -75,7 +75,9 @@ interface NoSqlSchemaBuilderProps {
 }
 
 export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilderProps) {
+  const { toast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [collections, setCollections] = useState<CollectionEntity[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [relationships, setRelationships] = useState<Relationship[]>([]);
@@ -83,7 +85,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
   // Sidebar controls
   const [sidebarSearch, setSidebarSearch] = useState("");
-  const [sidebarFilter, setSidebarFilter] = useState<"all" | "active" | "favorites">("all");
+  const [sidebarFilter, setSidebarFilter] = useState<"all" | "active">("all");
 
   // Canvas Pan & Zoom States
   const [zoom, setZoom] = useState(1);
@@ -106,10 +108,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   // Hover States
   const [hoveredLink, setHoveredLink] = useState<Relationship | null>(null);
 
-  // AI Command Bar (Raycast style)
+  // Quick Templates command bar (Raycast style)
   const [showAiCommand, setShowAiCommand] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [isAiLoading, setIsAiLoading] = useState(false);
 
   // Collapsed nested object states
   const [collapsedFields, setCollapsedFields] = useState<Record<string, boolean>>({});
@@ -118,9 +119,16 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setLoadError(null);
 
     fetch(`/api/connections/${connectionId}/databases/${database}/schema-links`)
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.message || `Failed to load schema (${res.status})`);
+        }
+        return res.json();
+      })
       .then((data) => {
         if (!active) return;
         const rawCols = data.collections || [];
@@ -190,8 +198,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         setRelationships(discoveredLinks);
         setLoading(false);
       })
-      .catch(() => {
-        if (active) setLoading(false);
+      .catch((err) => {
+        if (!active) return;
+        setLoadError(err instanceof Error ? err.message : "Failed to load schema");
+        setLoading(false);
       });
 
     return () => {
@@ -202,10 +212,12 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   // Window keydown for CMD+K AI command bar
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setShowAiCommand((prev) => !prev);
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "k") return;
+      const target = e.target as HTMLElement;
+      const isEditingText = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+      if (isEditingText) return;
+      e.preventDefault();
+      setShowAiCommand((prev) => !prev);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -528,139 +540,133 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     setPositions(nextPos);
   };
 
-  // AI Generator prompt solver
+  // Quick-template generator: matches keywords in the prompt to canned starter schemas
   const handleExecuteAi = () => {
     if (!aiPrompt.trim()) return;
-    setIsAiLoading(true);
 
-    setTimeout(() => {
-      // Contextual schema generators based on prompt keywords
-      const prompt = aiPrompt.toLowerCase();
-      let templates: Omit<CollectionEntity, "id">[] = [];
-      let genLinkTemplates: { from: string; field: string; to: string; type: Relationship["type"] }[] = [];
+    const prompt = aiPrompt.toLowerCase();
+    let templates: Omit<CollectionEntity, "id">[] = [];
+    let genLinkTemplates: { from: string; field: string; to: string; type: Relationship["type"] }[] = [];
 
-      if (prompt.includes("ecommerce") || prompt.includes("shop") || prompt.includes("store")) {
-        templates = [
-          {
-            name: "users",
-            documentCount: 12000,
-            color: "#3b82f6",
-            fields: [
-              { name: "_id", type: "ObjectId" },
-              { name: "name", type: "String" },
-              { name: "email", type: "String" },
-              { name: "createdAt", type: "Date" }
-            ],
-            validationRules: { email: { required: true, unique: true } },
-            indexes: [{ name: "_id_", keys: { _id: 1 } }]
-          },
-          {
-            name: "orders",
-            documentCount: 45000,
-            color: "#10b981",
-            fields: [
-              { name: "_id", type: "ObjectId" },
-              { name: "userId", type: "ObjectId" },
-              { name: "totalAmount", type: "Number" },
-              { name: "status", type: "String" }
-            ],
-            validationRules: { userId: { required: true } },
-            indexes: [{ name: "_id_", keys: { _id: 1 } }]
-          },
-          {
-            name: "products",
-            documentCount: 450,
-            color: "#f59e0b",
-            fields: [
-              { name: "_id", type: "ObjectId" },
-              { name: "title", type: "String" },
-              { name: "price", type: "Number" },
-              { name: "inventory", type: "Number" }
-            ],
-            validationRules: { title: { required: true } },
-            indexes: [{ name: "_id_", keys: { _id: 1 } }]
-          }
-        ];
-        genLinkTemplates = [
-          { from: "orders", field: "userId", to: "users", type: "reference" }
-        ];
-      } else if (prompt.includes("saas") || prompt.includes("tenant") || prompt.includes("project")) {
-        templates = [
-          {
-            name: "tenants",
-            documentCount: 120,
-            color: "#8b5cf6",
-            fields: [
-              { name: "_id", type: "ObjectId" },
-              { name: "companyName", type: "String" },
-              { name: "plan", type: "String" }
-            ],
-            validationRules: { companyName: { required: true } },
-            indexes: [{ name: "_id_", keys: { _id: 1 } }]
-          },
-          {
-            name: "members",
-            documentCount: 2300,
-            color: "#ef4444",
-            fields: [
-              { name: "_id", type: "ObjectId" },
-              { name: "tenantId", type: "ObjectId" },
-              { name: "fullName", type: "String" },
-              { name: "role", type: "String" }
-            ],
-            validationRules: { tenantId: { required: true } },
-            indexes: [{ name: "_id_", keys: { _id: 1 } }]
-          }
-        ];
-        genLinkTemplates = [
-          { from: "members", field: "tenantId", to: "tenants", type: "reference" }
-        ];
-      } else {
-        // Fallback default mock
-        templates = [
-          {
-            name: "accounts",
-            documentCount: 1400,
-            color: "#06b6d4",
-            fields: [
-              { name: "_id", type: "ObjectId" },
-              { name: "username", type: "String" },
-              { name: "status", type: "String" }
-            ],
-            validationRules: { username: { required: true } },
-            indexes: [{ name: "_id_", keys: { _id: 1 } }]
-          }
-        ];
-      }
+    if (prompt.includes("ecommerce") || prompt.includes("shop") || prompt.includes("store")) {
+      templates = [
+        {
+          name: "users",
+          documentCount: 12000,
+          color: "#3b82f6",
+          fields: [
+            { name: "_id", type: "ObjectId" },
+            { name: "name", type: "String" },
+            { name: "email", type: "String" },
+            { name: "createdAt", type: "Date" }
+          ],
+          validationRules: { email: { required: true, unique: true } },
+          indexes: [{ name: "_id_", keys: { _id: 1 } }]
+        },
+        {
+          name: "orders",
+          documentCount: 45000,
+          color: "#10b981",
+          fields: [
+            { name: "_id", type: "ObjectId" },
+            { name: "userId", type: "ObjectId" },
+            { name: "totalAmount", type: "Number" },
+            { name: "status", type: "String" }
+          ],
+          validationRules: { userId: { required: true } },
+          indexes: [{ name: "_id_", keys: { _id: 1 } }]
+        },
+        {
+          name: "products",
+          documentCount: 450,
+          color: "#f59e0b",
+          fields: [
+            { name: "_id", type: "ObjectId" },
+            { name: "title", type: "String" },
+            { name: "price", type: "Number" },
+            { name: "inventory", type: "Number" }
+          ],
+          validationRules: { title: { required: true } },
+          indexes: [{ name: "_id_", keys: { _id: 1 } }]
+        }
+      ];
+      genLinkTemplates = [
+        { from: "orders", field: "userId", to: "users", type: "reference" }
+      ];
+    } else if (prompt.includes("saas") || prompt.includes("tenant") || prompt.includes("project")) {
+      templates = [
+        {
+          name: "tenants",
+          documentCount: 120,
+          color: "#8b5cf6",
+          fields: [
+            { name: "_id", type: "ObjectId" },
+            { name: "companyName", type: "String" },
+            { name: "plan", type: "String" }
+          ],
+          validationRules: { companyName: { required: true } },
+          indexes: [{ name: "_id_", keys: { _id: 1 } }]
+        },
+        {
+          name: "members",
+          documentCount: 2300,
+          color: "#ef4444",
+          fields: [
+            { name: "_id", type: "ObjectId" },
+            { name: "tenantId", type: "ObjectId" },
+            { name: "fullName", type: "String" },
+            { name: "role", type: "String" }
+          ],
+          validationRules: { tenantId: { required: true } },
+          indexes: [{ name: "_id_", keys: { _id: 1 } }]
+        }
+      ];
+      genLinkTemplates = [
+        { from: "members", field: "tenantId", to: "tenants", type: "reference" }
+      ];
+    } else {
+      templates = [
+        {
+          name: "accounts",
+          documentCount: 1400,
+          color: "#06b6d4",
+          fields: [
+            { name: "_id", type: "ObjectId" },
+            { name: "username", type: "String" },
+            { name: "status", type: "String" }
+          ],
+          validationRules: { username: { required: true } },
+          indexes: [{ name: "_id_", keys: { _id: 1 } }]
+        }
+      ];
+    }
 
-      const nameToId = new Map<string, string>();
-      const generated: CollectionEntity[] = templates.map((template) => {
-        const id = crypto.randomUUID();
-        nameToId.set(template.name, id);
-        return { ...template, id, name: generateUniqueCollectionName(template.name) };
-      });
+    const nameToId = new Map<string, string>();
+    const generated: CollectionEntity[] = templates.map((template) => {
+      const id = crypto.randomUUID();
+      nameToId.set(template.name, id);
+      return { ...template, id, name: generateUniqueCollectionName(template.name) };
+    });
 
-      const genLinks: Relationship[] = genLinkTemplates.flatMap((link) => {
-        const fromId = nameToId.get(link.from);
-        const toId = nameToId.get(link.to);
-        if (!fromId || !toId) return [];
-        return [{ from: fromId, field: link.field, to: toId, type: link.type }];
-      });
+    const genLinks: Relationship[] = genLinkTemplates.flatMap((link) => {
+      const fromId = nameToId.get(link.from);
+      const toId = nameToId.get(link.to);
+      if (!fromId || !toId) return [];
+      return [{ from: fromId, field: link.field, to: toId, type: link.type }];
+    });
 
-      setCollections((prev) => [...prev, ...generated]);
-      setRelationships((prev) => [...prev, ...genLinks]);
+    setCollections((prev) => [...prev, ...generated]);
+    setRelationships((prev) => [...prev, ...genLinks]);
 
-      // Calculate layout coordinates
-      const nextPos = { ...positions };
-      generated.forEach((col, idx) => {
-        nextPos[col.id] = { x: 120 + idx * 360, y: 150 };
-      });
-      setPositions(nextPos);
+    // Calculate layout coordinates
+    const nextPos = { ...positions };
+    generated.forEach((col, idx) => {
+      nextPos[col.id] = { x: 120 + idx * 360, y: 150 };
+    });
+    setPositions(nextPos);
 
-      setIsAiLoading(false);
-      setAiPrompt("");
-      setShowAiCommand(false);
-    }, 1500);
+    setAiPrompt("");
+    setShowAiCommand(false);
   };
 
   // Add field row visually inside card
@@ -700,9 +706,8 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   const filteredSidebarCols = useMemo(() => {
     return collections.filter((c) => {
       const matchSearch = c.name.toLowerCase().includes(sidebarSearch.toLowerCase());
-      if (sidebarFilter === "all") return matchSearch;
-      if (sidebarFilter === "active") return matchSearch && c.documentCount && c.documentCount > 0;
-      return matchSearch; // default fallback
+      if (sidebarFilter === "active") return matchSearch && !!c.documentCount && c.documentCount > 0;
+      return matchSearch;
     });
   }, [collections, sidebarSearch, sidebarFilter]);
 
@@ -728,6 +733,16 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     return str;
   };
 
+  const handleExportMermaid = async () => {
+    const diagram = getMermaidExport();
+    try {
+      await navigator.clipboard.writeText(diagram);
+      toast({ title: "Copied to clipboard", description: "Mermaid ER diagram syntax" });
+    } catch {
+      toast({ title: "Couldn't copy to clipboard", description: "Clipboard access was denied", variant: "destructive" });
+    }
+  };
+
   const getBsonColorClass = (type: string) => {
     switch (type.toLowerCase()) {
       case "objectid": return "bg-red-500/10 text-red-400 border-red-500/20";
@@ -747,6 +762,16 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-3">
         <Loader2 className="w-8 h-8 text-primary animate-spin" />
         <p className="text-sm text-muted-foreground font-sans">Initializing NoSQL database designer workspace...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-3 text-center">
+        <ShieldAlert className="w-8 h-8 text-destructive" />
+        <p className="text-sm text-foreground font-sans font-medium">Couldn't load the schema for "{database}"</p>
+        <p className="text-xs text-muted-foreground font-mono max-w-md">{loadError}</p>
       </div>
     );
   }
@@ -812,7 +837,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             >
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: col.color || "#ccc" }} />
               <span className="truncate flex-1 font-mono">{col.name}</span>
-              {col.documentCount && (
+              {col.documentCount !== undefined && (
                 <span className="text-[10px] text-muted-foreground font-mono">
                   {col.documentCount > 1000000
                     ? `${(col.documentCount / 1000000).toFixed(1)}M`
@@ -836,10 +861,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             }}
             className="w-full h-8 text-xs font-mono bg-purple-600/10 text-purple-400 border border-purple-500/25 hover:bg-purple-600 hover:text-white transition-all gap-1.5"
           >
-            <Sparkles className="w-3.5 h-3.5" /> AI Command Bar
+            <Sparkles className="w-3.5 h-3.5" /> Quick Templates
           </Button>
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 w-52 p-2 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
-            Open AI Prompt: Generate collections, add validations, or suggest indexes
+            Generate starter collections from a keyword like "ecommerce", "saas", or "tenant"
           </div>
         </div>
       </div>
@@ -927,6 +952,20 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
               Creates a new collection card template on the active workspace
             </div>
           </div>
+
+          <div className="relative group flex items-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExportMermaid}
+              className="h-6 text-[10px] font-mono px-2"
+            >
+              Export
+            </Button>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-48 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+              Copies the schema as Mermaid ER diagram syntax
+            </div>
+          </div>
         </div>
 
         {/* Real Canvas workspace container */}
@@ -943,6 +982,13 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             backgroundPosition: `${pan.x}px ${pan.y}px`,
           }}
         >
+          {collections.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center pointer-events-none z-20">
+              <p className="text-sm text-muted-foreground font-sans">"{database}" has no collections yet</p>
+              <p className="text-xs text-muted-foreground/60 font-mono">Create one to start designing the schema</p>
+            </div>
+          )}
+
           {/* Zoom/Pan Scaled Layer */}
           <div
             style={{
@@ -1277,7 +1323,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
                             {/* Render Nested Object children */}
                             {field.children && !isCollapsed && (
-                              <div className="pl-6 pr-3 py-0.5 space-y-0.5 border-l border-border/40 ml-4.5 bg-zinc-950/10">
+                              <div className="pl-6 pr-3 py-0.5 space-y-0.5 border-l border-border/40 ml-[1.125rem] bg-zinc-950/10">
                                 {field.children.map((child) => (
                                   <div key={child.name} className="flex items-center justify-between text-[9px] font-mono py-0.5">
                                     <span className="text-muted-foreground">├ {child.name}</span>
@@ -1292,7 +1338,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                     </div>
 
                     {/* Footer Stats badge details */}
-                    {col.documentCount && (
+                    {col.documentCount !== undefined && (
                       <div className="px-3.5 py-1.5 border-t border-border/40 bg-zinc-950/10 rounded-b-lg flex justify-between items-center text-[10px] text-muted-foreground font-mono">
                         <span>{col.fields.length} attributes</span>
                         <span>{col.documentCount.toLocaleString()} docs</span>
@@ -1366,17 +1412,17 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 </select>
               </div>
 
-              {/* AI Normalization Recommendation block */}
+              {/* Normalization recommendation block */}
               <div className="border border-purple-500/20 bg-purple-950/10 rounded-lg p-3 space-y-2.5 text-[10px]">
                 <div className="flex items-center gap-1.5 text-purple-400 font-bold">
                   <Sparkles className="w-3.5 h-3.5" />
-                  AI Design Audit
+                  Design Recommendation
                 </div>
                 <p className="text-muted-foreground leading-normal">
                   {selectedLink.type === "reference" ? (
-                    `Recommendation: Recommending Denormalizing (Embedding). If "${selectedLinkToName}" is small and queried with "${selectedLinkFromName}" in 100% of cases, embed user details to eliminate lookup join overhead.`
+                    `Consider denormalizing (embedding). If "${selectedLinkToName}" is small and queried with "${selectedLinkFromName}" in most cases, embed its details to eliminate a lookup join.`
                   ) : (
-                    `Recommendation: Recommending Normalizing (Referencing). If target "${selectedLinkToName}" data updates frequently or grows rapidly, embed triggers write locks. Extract target to separate collection.`
+                    `Consider normalizing (referencing). If target "${selectedLinkToName}" data updates frequently or grows rapidly, embedding it forces a write lock — extract it to a separate collection instead.`
                   )}
                 </p>
                 {selectedLink.type === "reference" && (
@@ -1415,7 +1461,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                     inspectorTab === tab ? "bg-background text-foreground shadow-sm font-semibold" : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {tab === "normalization" ? "AI Audit" : tab}
+                  {tab === "normalization" ? "Suggestions" : tab}
                 </button>
               ))}
             </div>
@@ -1687,7 +1733,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                           </p>
                           <Button
                             size="sm"
-                            onClick={() => handleApplyNormalization(activeColData.name, field.name)}
+                            onClick={() => handleApplyNormalization(activeColData.id, field.name)}
                             className="w-full h-7 text-[10px] bg-purple-600 hover:bg-purple-700 text-white font-mono"
                           >
                             Extract & Normalize
@@ -1746,7 +1792,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         )}
       </div>
 
-      {/* ── AI COMMAND BAR (Raycast Prompt) ── */}
+      {/* ── QUICK TEMPLATES COMMAND BAR (Raycast-style prompt) ── */}
       {showAiCommand && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-start justify-center pt-24 animate-fadeIn">
           <div className="bg-zinc-900 border border-border/80 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col min-h-[120px]">
@@ -1757,10 +1803,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleExecuteAi();
+                  if (e.key === "Enter") handleExecuteAi();
                   else if (e.key === "Escape") setShowAiCommand(false);
                 }}
-                placeholder="Ask AI e.g. '/generate SaaS tenants and members schemas'..."
+                placeholder="Try 'ecommerce', 'saas', or describe your domain..."
                 className="bg-transparent border-0 font-mono text-sm outline-none text-foreground flex-grow placeholder:text-muted-foreground/60 h-8"
                 autoFocus
               />
@@ -1776,13 +1822,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             {/* Prompt Actions */}
             <div className="bg-zinc-950/40 p-2 px-3.5 flex justify-between items-center text-[10px] text-muted-foreground font-mono border-t border-border/10">
               <span>Press <kbd className="bg-zinc-900 border border-border/60 px-1 rounded text-foreground font-bold">ESC</kbd> to close</span>
-              {isAiLoading ? (
-                <span className="flex items-center gap-1 text-purple-400 font-bold">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Spawning Entities...
-                </span>
-              ) : (
-                <span>Press <kbd className="bg-zinc-900 border border-border/60 px-1 rounded text-foreground font-bold">ENTER</kbd> to generate</span>
-              )}
+              <span>Press <kbd className="bg-zinc-900 border border-border/60 px-1 rounded text-foreground font-bold">ENTER</kbd> to generate</span>
             </div>
           </div>
         </div>
