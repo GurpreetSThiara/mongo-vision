@@ -1,5 +1,6 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { useCallback } from "react";
+import { useResolvedTheme } from "@/lib/theme";
 
 interface MonacoJsonEditorProps {
   value: string;
@@ -20,6 +21,7 @@ export function MonacoJsonEditor({
   wordWrap = true,
   onSave,
 }: MonacoJsonEditorProps) {
+  const resolvedTheme = useResolvedTheme();
   const handleEditorMount: OnMount = useCallback(
     (editor, monaco) => {
       if (onSave) {
@@ -39,7 +41,7 @@ export function MonacoJsonEditor({
       <Editor
         height={height}
         language="json"
-        theme="vs-dark"
+        theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
         value={value}
         onChange={onChange}
         onMount={handleEditorMount}

@@ -1,6 +1,7 @@
 import Editor, { useMonaco, type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef, useCallback } from "react";
 import type { editor } from "monaco-editor";
+import { useResolvedTheme } from "@/lib/theme";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -187,6 +188,7 @@ export function QueryEditor({
   mode = "general",
 }: QueryEditorProps) {
   const monaco = useMonaco();
+  const resolvedTheme = useResolvedTheme();
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const completionProviderRef = useRef<any>(null);
   const diagnosticProviderRef = useRef<any>(null);
@@ -520,7 +522,7 @@ export function QueryEditor({
         key={`${syntax}-${mode}`}
         height={height}
         language={syntax === "mongosh" ? "javascript" : "json"}
-        theme="vs-dark"
+        theme={resolvedTheme === "dark" ? "vs-dark" : "light"}
         value={value}
         onChange={onChange}
         onMount={handleEditorMount}

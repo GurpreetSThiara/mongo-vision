@@ -71,3 +71,21 @@ export const useTheme = () => {
 
   return context
 }
+
+/** Resolves "system" down to the actual "light" | "dark" currently applied. */
+export const useResolvedTheme = (): "light" | "dark" => {
+  const { theme } = useTheme()
+  const [systemPrefersDark, setSystemPrefersDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches
+  )
+
+  useEffect(() => {
+    const mql = window.matchMedia("(prefers-color-scheme: dark)")
+    const handler = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches)
+    mql.addEventListener("change", handler)
+    return () => mql.removeEventListener("change", handler)
+  }, [])
+
+  if (theme === "system") return systemPrefersDark ? "dark" : "light"
+  return theme
+}
