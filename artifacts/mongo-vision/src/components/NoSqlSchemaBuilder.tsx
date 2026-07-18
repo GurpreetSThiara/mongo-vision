@@ -17,6 +17,8 @@ interface SchemaField {
 }
 
 interface CollectionEntity {
+  /** Stable identity for state keys (positions, relationships, selection) — never changes when the user renames the collection. */
+  id: string;
   name: string;
   documentCount?: number;
   color?: string;
@@ -27,8 +29,10 @@ interface CollectionEntity {
 }
 
 interface Relationship {
+  /** CollectionEntity.id of the source collection. */
   from: string;
   field: string;
+  /** CollectionEntity.id of the target collection. */
   to: string;
   type: "reference" | "embedded" | "many-to-many" | "virtual";
 }
@@ -43,7 +47,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   const [collections, setCollections] = useState<CollectionEntity[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [relationships, setRelationships] = useState<Relationship[]>([]);
-  const [selectedCol, setSelectedCol] = useState<string | null>(null);
+  const [selectedColId, setSelectedColId] = useState<string | null>(null);
 
   // Sidebar controls
   const [sidebarSearch, setSidebarSearch] = useState("");
@@ -56,10 +60,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   const panStart = useRef({ x: 0, y: 0 });
 
   // Dragger & Linker States
-  const [draggingCol, setDraggingCol] = useState<string | null>(null);
+  const [draggingColId, setDraggingColId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
-  const [activeLinkSource, setActiveLinkSource] = useState<{ col: string; field: string } | null>(null);
+  const [activeLinkSource, setActiveLinkSource] = useState<{ colId: string; field: string } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -91,6 +95,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
         const colors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
         const cols: CollectionEntity[] = rawCols.map((c: any, idx: number) => ({
+          id: crypto.randomUUID(),
           name: c.name,
           documentCount: c.documentCount ?? 0,
           color: colors[idx % colors.length],
@@ -101,14 +106,14 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         }));
 
         setCollections(cols);
-        if (cols.length > 0) setSelectedCol(cols[0].name);
+        if (cols.length > 0) setSelectedColId(cols[0].id);
 
         // Coordinates layout Grid
         const initialPos: Record<string, { x: number; y: number }> = {};
         cols.forEach((col, idx) => {
           const colIndex = idx % 3;
           const rowIndex = Math.floor(idx / 3);
-          initialPos[col.name] = { x: 80 + colIndex * 380, y: 50 + rowIndex * 340 };
+          initialPos[col.id] = { x: 80 + colIndex * 380, y: 50 + rowIndex * 340 };
         });
         setPositions(initialPos);
 
@@ -137,9 +142,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
               if (match) {
                 discoveredLinks.push({
-                  from: col.name,
+                  from: col.id,
                   field: field.name,
-                  to: match.name,
+                  to: match.id,
                   type: field.type === "Array" ? "many-to-many" : "reference",
                 });
               }
@@ -173,13 +178,13 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   // Dragger Mouse Move listener
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (draggingCol) {
+      if (draggingColId) {
         const currentZoom = zoom;
         setPositions((prev) => {
-          const pos = prev[draggingCol] || { x: 0, y: 0 };
+          const pos = prev[draggingColId] || { x: 0, y: 0 };
           return {
             ...prev,
-            [draggingCol]: {
+            [draggingColId]: {
               x: Math.max(10, pos.x + e.movementX / currentZoom),
               y: Math.max(10, pos.y + e.movementY / currentZoom),
             },
@@ -200,26 +205,26 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     };
 
     const handleMouseUp = (e: MouseEvent) => {
-      if (draggingCol) setDraggingCol(null);
+      if (draggingColId) setDraggingColId(null);
       if (isPanning) setIsPanning(false);
 
       if (activeLinkSource) {
         const target = e.target as HTMLElement;
-        const cardEl = target.closest("[data-entity-name]");
+        const cardEl = target.closest("[data-entity-id]");
         if (cardEl) {
-          const targetCol = cardEl.getAttribute("data-entity-name");
-          if (targetCol && targetCol !== activeLinkSource.col) {
+          const targetColId = cardEl.getAttribute("data-entity-id");
+          if (targetColId && targetColId !== activeLinkSource.colId) {
             setRelationships((prev) => {
               const duplicate = prev.some(
                 (r) =>
-                  r.from === activeLinkSource.col &&
+                  r.from === activeLinkSource.colId &&
                   r.field === activeLinkSource.field &&
-                  r.to === targetCol
+                  r.to === targetColId
               );
               if (duplicate) return prev;
               return [
                 ...prev,
-                { from: activeLinkSource.col, field: activeLinkSource.field, to: targetCol, type: "reference" },
+                { from: activeLinkSource.colId, field: activeLinkSource.field, to: targetColId, type: "reference" },
               ];
             });
           }
@@ -234,7 +239,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [draggingCol, isPanning, activeLinkSource, pan, zoom]);
+  }, [draggingColId, isPanning, activeLinkSource, pan, zoom]);
 
   // Mouse Wheel zooms in and out
   const handleWheel = (e: React.WheelEvent) => {
@@ -245,32 +250,42 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   };
 
   // Card Mouse Down selection and dragging
-  const handleCardMouseDown = (colName: string, e: React.MouseEvent) => {
+  const handleCardMouseDown = (colId: string, e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest("button") || target.closest("select") || target.closest("input")) return;
-    setSelectedCol(colName);
-    setDraggingCol(colName);
-    const pos = positions[colName] || { x: 0, y: 0 };
+    setSelectedColId(colId);
+    setDraggingColId(colId);
+    const pos = positions[colId] || { x: 0, y: 0 };
     dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
   };
 
   const handleBackgroundMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    if (target.closest("[data-entity-name]") || target.closest("button")) return;
+    if (target.closest("[data-entity-id]") || target.closest("button")) return;
     setIsPanning(true);
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
   };
 
-  const handleRemoveCollection = (colName: string) => {
-    setCollections((prev) => prev.filter((c) => c.name !== colName));
-    setRelationships((prev) => prev.filter((r) => r.from !== colName && r.to !== colName));
-    if (selectedCol === colName) setSelectedCol(null);
+  const handleRemoveCollection = (colId: string) => {
+    setCollections((prev) => prev.filter((c) => c.id !== colId));
+    setRelationships((prev) => prev.filter((r) => r.from !== colId && r.to !== colId));
+    if (selectedColId === colId) setSelectedColId(null);
+  };
+
+  const generateUniqueCollectionName = (base: string) => {
+    const existingNames = new Set(collections.map((c) => c.name));
+    if (!existingNames.has(base)) return base;
+    let suffix = 2;
+    while (existingNames.has(`${base}_${suffix}`)) suffix++;
+    return `${base}_${suffix}`;
   };
 
   const handleAddCollection = () => {
-    const name = `collection_${collections.length + 1}`;
+    const id = crypto.randomUUID();
+    const name = generateUniqueCollectionName(`collection_${collections.length + 1}`);
     const newCol: CollectionEntity = {
+      id,
       name,
       documentCount: 0,
       color: "#3b82f6",
@@ -285,19 +300,21 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     setCollections((prev) => [...prev, newCol]);
     setPositions((prev) => ({
       ...prev,
-      [name]: { x: (100 - pan.x) / zoom, y: (100 - pan.y) / zoom },
+      [id]: { x: (100 - pan.x) / zoom, y: (100 - pan.y) / zoom },
     }));
   };
 
-  const handleApplyNormalization = (colName: string, fieldName: string) => {
-    const sourceCol = collections.find((c) => c.name === colName);
+  const handleApplyNormalization = (colId: string, fieldName: string) => {
+    const sourceCol = collections.find((c) => c.id === colId);
     if (!sourceCol) return;
 
     const field = sourceCol.fields.find((f) => f.name === fieldName);
     if (!field) return;
 
-    const targetName = `${fieldName}s`;
+    const targetId = crypto.randomUUID();
+    const targetName = generateUniqueCollectionName(`${fieldName}s`);
     const newCol: CollectionEntity = {
+      id: targetId,
       name: targetName,
       documentCount: Math.floor(sourceCol.documentCount ? sourceCol.documentCount / 2 : 1000),
       color: "#8b5cf6",
@@ -315,7 +332,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     const refKey = `${fieldName}Id`;
     setCollections((prev) =>
       prev.map((c) => {
-        if (c.name === colName) {
+        if (c.id === colId) {
           return {
             ...c,
             fields: [
@@ -332,29 +349,29 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
     setRelationships((prev) => [
       ...prev,
-      { from: colName, field: refKey, to: targetName, type: "reference" }
+      { from: colId, field: refKey, to: targetId, type: "reference" }
     ]);
 
-    const sourcePos = positions[colName] || { x: 100, y: 100 };
+    const sourcePos = positions[colId] || { x: 100, y: 100 };
     setPositions((prev) => ({
       ...prev,
-      [targetName]: { x: sourcePos.x + 360, y: sourcePos.y + 40 }
+      [targetId]: { x: sourcePos.x + 360, y: sourcePos.y + 40 }
     }));
 
-    setSelectedCol(colName);
+    setSelectedColId(colId);
   };
 
   const handleApplyDenormalization = (rel: Relationship) => {
-    const sourceCol = collections.find((c) => c.name === rel.from);
-    const targetCol = collections.find((c) => c.name === rel.to);
+    const sourceCol = collections.find((c) => c.id === rel.from);
+    const targetCol = collections.find((c) => c.id === rel.to);
     if (!sourceCol || !targetCol) return;
 
     const targetFields = targetCol.fields.filter((f) => f.name !== "_id");
-    const embeddedFieldName = rel.to.endsWith("s") ? rel.to.slice(0, -1) : `${rel.to}Detail`;
+    const embeddedFieldName = targetCol.name.endsWith("s") ? targetCol.name.slice(0, -1) : `${targetCol.name}Detail`;
 
     setCollections((prev) =>
       prev.map((c) => {
-        if (c.name === rel.from) {
+        if (c.id === rel.from) {
           return {
             ...c,
             fields: [
@@ -376,14 +393,14 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     );
 
     setSelectedLink(null);
-    setSelectedCol(rel.from);
+    setSelectedColId(rel.from);
   };
 
-  const startDrawingLink = (colName: string, fieldName: string, e: React.MouseEvent) => {
+  const startDrawingLink = (colId: string, fieldName: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    setActiveLinkSource({ col: colName, field: fieldName });
+    setActiveLinkSource({ colId, field: fieldName });
     setMousePos({
       x: (e.clientX - rect.left - pan.x) / zoom,
       y: (e.clientY - rect.top - pan.y) / zoom,
@@ -414,14 +431,14 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       collections.forEach((col, idx) => {
         const colIndex = idx % 3;
         const rowIndex = Math.floor(idx / 3);
-        nextPos[col.name] = { x: 80 + colIndex * 380, y: 50 + rowIndex * 340 };
+        nextPos[col.id] = { x: 80 + colIndex * 380, y: 50 + rowIndex * 340 };
       });
     } else if (mode === "circle") {
       const radius = 300;
       const count = collections.length;
       collections.forEach((col, idx) => {
         const angle = (idx / count) * 2 * Math.PI;
-        nextPos[col.name] = {
+        nextPos[col.id] = {
           x: 400 + radius * Math.cos(angle),
           y: 350 + radius * Math.sin(angle),
         };
@@ -432,7 +449,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       const positionsArray = collections.map((col, idx) => {
         const colIndex = idx % 3;
         const rowIndex = Math.floor(idx / 3);
-        return { name: col.name, x: 80 + colIndex * 380, y: 50 + rowIndex * 340 };
+        return { id: col.id, x: 80 + colIndex * 380, y: 50 + rowIndex * 340 };
       });
 
       // Spring Repulsion solver
@@ -452,7 +469,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         }
       }
       positionsArray.forEach((p) => {
-        nextPos[p.name] = { x: Math.max(20, p.x), y: Math.max(20, p.y) };
+        nextPos[p.id] = { x: Math.max(20, p.x), y: Math.max(20, p.y) };
       });
     }
     setPositions(nextPos);
@@ -466,11 +483,11 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     setTimeout(() => {
       // Contextual schema generators based on prompt keywords
       const prompt = aiPrompt.toLowerCase();
-      let generated: CollectionEntity[] = [];
-      let genLinks: Relationship[] = [];
+      let templates: Omit<CollectionEntity, "id">[] = [];
+      let genLinkTemplates: { from: string; field: string; to: string; type: Relationship["type"] }[] = [];
 
       if (prompt.includes("ecommerce") || prompt.includes("shop") || prompt.includes("store")) {
-        generated = [
+        templates = [
           {
             name: "users",
             documentCount: 12000,
@@ -511,11 +528,11 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             indexes: [{ name: "_id_", keys: { _id: 1 } }]
           }
         ];
-        genLinks = [
+        genLinkTemplates = [
           { from: "orders", field: "userId", to: "users", type: "reference" }
         ];
       } else if (prompt.includes("saas") || prompt.includes("tenant") || prompt.includes("project")) {
-        generated = [
+        templates = [
           {
             name: "tenants",
             documentCount: 120,
@@ -542,12 +559,12 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             indexes: [{ name: "_id_", keys: { _id: 1 } }]
           }
         ];
-        genLinks = [
+        genLinkTemplates = [
           { from: "members", field: "tenantId", to: "tenants", type: "reference" }
         ];
       } else {
         // Fallback default mock
-        generated = [
+        templates = [
           {
             name: "accounts",
             documentCount: 1400,
@@ -563,13 +580,27 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
         ];
       }
 
+      const nameToId = new Map<string, string>();
+      const generated: CollectionEntity[] = templates.map((template) => {
+        const id = crypto.randomUUID();
+        nameToId.set(template.name, id);
+        return { ...template, id, name: generateUniqueCollectionName(template.name) };
+      });
+
+      const genLinks: Relationship[] = genLinkTemplates.flatMap((link) => {
+        const fromId = nameToId.get(link.from);
+        const toId = nameToId.get(link.to);
+        if (!fromId || !toId) return [];
+        return [{ from: fromId, field: link.field, to: toId, type: link.type }];
+      });
+
       setCollections((prev) => [...prev, ...generated]);
       setRelationships((prev) => [...prev, ...genLinks]);
 
       // Calculate layout coordinates
       const nextPos = { ...positions };
       generated.forEach((col, idx) => {
-        nextPos[col.name] = { x: 120 + idx * 360, y: 150 };
+        nextPos[col.id] = { x: 120 + idx * 360, y: 150 };
       });
       setPositions(nextPos);
 
@@ -580,10 +611,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   };
 
   // Add field row visually inside card
-  const handleAddNewField = (colName: string) => {
+  const handleAddNewField = (colId: string) => {
     setCollections((prev) =>
       prev.map((col) => {
-        if (col.name === colName) {
+        if (col.id === colId) {
           return {
             ...col,
             fields: [...col.fields, { name: `new_field_${col.fields.length}`, type: "String" }],
@@ -595,10 +626,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
   };
 
   // Remove field row visually
-  const handleRemoveFieldRow = (colName: string, fieldName: string) => {
+  const handleRemoveFieldRow = (colId: string, fieldName: string) => {
     setCollections((prev) =>
       prev.map((col) => {
-        if (col.name === colName) {
+        if (col.id === colId) {
           return {
             ...col,
             fields: col.fields.filter((f) => f.name !== fieldName),
@@ -608,7 +639,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       })
     );
     setRelationships((prev) =>
-      prev.filter((r) => !(r.from === colName && r.field === fieldName))
+      prev.filter((r) => !(r.from === colId && r.field === fieldName))
     );
   };
 
@@ -624,11 +655,12 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
   // Active Selected collection details
   const activeColData = useMemo(() => {
-    return collections.find((c) => c.name === selectedCol);
-  }, [collections, selectedCol]);
+    return collections.find((c) => c.id === selectedColId);
+  }, [collections, selectedColId]);
 
   // Export string schema code generators (Mermaid syntax)
   const getMermaidExport = () => {
+    const nameById = new Map(collections.map((col) => [col.id, col.name]));
     let str = "erDiagram\n";
     collections.forEach((col) => {
       str += `    ${col.name} {\n`;
@@ -638,7 +670,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       str += "    }\n";
     });
     relationships.forEach((r) => {
-      str += `    ${r.from} ||--o{ ${r.to} : "references"\n`;
+      str += `    ${nameById.get(r.from) ?? r.from} ||--o{ ${nameById.get(r.to) ?? r.to} : "references"\n`;
     });
     return str;
   };
@@ -708,15 +740,15 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
           </span>
           {filteredSidebarCols.map((col) => (
             <div
-              key={col.name}
+              key={col.id}
               onClick={() => {
-                setSelectedCol(col.name);
+                setSelectedColId(col.id);
                 // Center pan view on card
-                const pos = positions[col.name] || { x: 50, y: 50 };
+                const pos = positions[col.id] || { x: 50, y: 50 };
                 setPan({ x: 100 - pos.x * zoom, y: 100 - pos.y * zoom });
               }}
               className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${
-                selectedCol === col.name ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                selectedColId === col.id ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               }`}
             >
               <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: col.color || "#ccc" }} />
@@ -881,7 +913,8 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 const toPos = positions[link.to];
                 if (!fromPos || !toPos) return null;
 
-                const col = collections.find((c) => c.name === link.from);
+                const col = collections.find((c) => c.id === link.from);
+                const targetCol = collections.find((c) => c.id === link.to);
                 const fieldIndex = col ? col.fields.findIndex((f) => f.name === link.field) : 0;
                 const fieldYOffset = 45 + fieldIndex * 26 + 13;
 
@@ -905,7 +938,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                     onMouseLeave={() => setHoveredLink(null)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedCol(null);
+                      setSelectedColId(null);
                       setSelectedLink(link);
                       setInspectorTab("properties");
                     }}
@@ -964,7 +997,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                             {link.type === "many-to-many" ? "N:M Array Ref" : "1:N ObjectId Ref"}
                           </div>
                           <div className="text-muted-foreground/60 text-[8px] mt-1">
-                            references <span className="text-foreground">{link.to}._id</span>
+                            references <span className="text-foreground">{targetCol?.name ?? link.to}._id</span>
                           </div>
                         </div>
                       </foreignObject>
@@ -1004,9 +1037,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
               {/* Temporary drawing pointer connection */}
               {activeLinkSource && (
                 (() => {
-                  const fromPos = positions[activeLinkSource.col];
+                  const fromPos = positions[activeLinkSource.colId];
                   if (!fromPos) return null;
-                  const col = collections.find((c) => c.name === activeLinkSource.col);
+                  const col = collections.find((c) => c.id === activeLinkSource.colId);
                   const fieldIndex = col ? col.fields.findIndex((f) => f.name === activeLinkSource.field) : 0;
                   const fieldYOffset = 45 + fieldIndex * 26 + 13;
 
@@ -1029,18 +1062,18 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             {/* Draggable Cards Layout grid */}
             <div className="absolute inset-0 w-full h-full pointer-events-none">
               {collections.map((col) => {
-                const pos = positions[col.name] || { x: 50, y: 50 };
-                const isSelected = selectedCol === col.name;
+                const pos = positions[col.id] || { x: 50, y: 50 };
+                const isSelected = selectedColId === col.id;
 
                 // Zoom Scaling detail levels
                 if (zoom < 0.25) {
                   // Level 4: Micro circle nodes
                   return (
                     <div
-                      key={col.name}
+                      key={col.id}
                       style={{ left: pos.x + 100, top: pos.y + 40 }}
                       className="absolute w-8 h-8 rounded-full border border-white/20 shadow-lg pointer-events-auto cursor-pointer flex items-center justify-center bg-zinc-900"
-                      onClick={() => setSelectedCol(col.name)}
+                      onClick={() => setSelectedColId(col.id)}
                     >
                       <div className="w-4 h-4 rounded-full" style={{ backgroundColor: col.color || "#ccc" }} />
                     </div>
@@ -1051,9 +1084,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                   // Level 3: Large solid color name tags
                   return (
                     <div
-                      key={col.name}
+                      key={col.id}
                       style={{ left: pos.x + 40, top: pos.y + 30 }}
-                      onClick={() => setSelectedCol(col.name)}
+                      onClick={() => setSelectedColId(col.id)}
                       className={`absolute px-4 py-2 border rounded-full shadow-lg pointer-events-auto cursor-pointer font-bold text-sm font-mono text-center flex items-center gap-2 ${
                         isSelected ? "border-primary bg-zinc-900 text-foreground" : "border-border/60 bg-zinc-950/90 text-muted-foreground"
                       }`}
@@ -1068,9 +1101,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                   // Level 2: Medium cards (Headers, counts)
                   return (
                     <div
-                      key={col.name}
+                      key={col.id}
                       style={{ left: pos.x, top: pos.y }}
-                      onClick={() => setSelectedCol(col.name)}
+                      onClick={() => setSelectedColId(col.id)}
                       className={`absolute w-60 border rounded-lg bg-card shadow-lg pointer-events-auto cursor-pointer ${
                         isSelected ? "border-primary ring-2 ring-primary/20" : "border-border/60"
                       }`}
@@ -1089,10 +1122,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 // Level 1: Full-detail Figma Cards
                 return (
                   <div
-                    key={col.name}
-                    data-entity-name={col.name}
+                    key={col.id}
+                    data-entity-id={col.id}
                     style={{ left: pos.x, top: pos.y }}
-                    onMouseDown={(e) => handleCardMouseDown(col.name, e)}
+                    onMouseDown={(e) => handleCardMouseDown(col.id, e)}
                     className={`absolute w-60 border rounded-lg bg-card shadow-lg select-none cursor-grab active:cursor-grabbing pointer-events-auto z-20 ${
                       isSelected
                         ? "border-primary ring-2 ring-primary/25 shadow-primary/5"
@@ -1108,7 +1141,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                       <div className="flex items-center gap-1 shrink-0 ml-1">
                         <button
                           type="button"
-                          onClick={() => handleAddNewField(col.name)}
+                          onClick={() => handleAddNewField(col.id)}
                           className="h-5 w-5 text-muted-foreground hover:text-foreground rounded hover:bg-muted flex items-center justify-center"
                           title="Add field row"
                         >
@@ -1116,7 +1149,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleRemoveCollection(col.name)}
+                          onClick={() => handleRemoveCollection(col.id)}
                           className="h-5 w-5 text-muted-foreground hover:text-destructive rounded hover:bg-muted flex items-center justify-center"
                           title="Delete entity"
                         >
@@ -1128,8 +1161,8 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                     {/* Fields List */}
                     <div className="py-1">
                       {col.fields.map((field, fIdx) => {
-                        const isLinkSource = activeLinkSource?.col === col.name && activeLinkSource?.field === field.name;
-                        const isCollapsed = collapsedFields[`${col.name}.${field.name}`] || false;
+                        const isLinkSource = activeLinkSource?.colId === col.id && activeLinkSource?.field === field.name;
+                        const isCollapsed = collapsedFields[`${col.id}.${field.name}`] || false;
 
                         return (
                           <div key={field.name} className="space-y-0.5">
@@ -1137,7 +1170,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                 {/* Drag Relationship anchor */}
                                 <span
-                                  onMouseDown={(e) => startDrawingLink(col.name, field.name, e)}
+                                  onMouseDown={(e) => startDrawingLink(col.id, field.name, e)}
                                   className="w-2.5 h-2.5 rounded-full border border-purple-500 bg-purple-500/20 hover:bg-purple-500 cursor-crosshair shrink-0 pointer-events-auto"
                                   title="Drag reference line"
                                 />
@@ -1148,7 +1181,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                     onClick={() =>
                                       setCollapsedFields((prev) => ({
                                         ...prev,
-                                        [`${col.name}.${field.name}`]: !isCollapsed,
+                                        [`${col.id}.${field.name}`]: !isCollapsed,
                                       }))
                                     }
                                     className="shrink-0 text-muted-foreground hover:text-foreground"
@@ -1166,7 +1199,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                 {field.name !== "_id" && (
                                   <button
                                     type="button"
-                                    onClick={() => handleRemoveFieldRow(col.name, field.name)}
+                                    onClick={() => handleRemoveFieldRow(col.id, field.name)}
                                     className="h-4 w-4 text-muted-foreground hover:text-destructive rounded hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
                                     title="Delete field"
                                   >
@@ -1209,7 +1242,10 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
       {/* ── RIGHT INSPECTOR PANEL (Notion/Linear style tabbed inspector) ── */}
       <div className="w-80 border-l border-border/60 bg-sidebar flex flex-col shrink-0 min-h-0">
-        {selectedLink ? (
+        {selectedLink ? (() => {
+          const selectedLinkFromName = collections.find((c) => c.id === selectedLink.from)?.name ?? selectedLink.from;
+          const selectedLinkToName = collections.find((c) => c.id === selectedLink.to)?.name ?? selectedLink.to;
+          return (
           <div className="flex-1 flex flex-col min-h-0 font-mono text-xs">
             {/* Panel Header */}
             <div className="p-4 border-b border-border/60 shrink-0 flex justify-between items-center">
@@ -1232,11 +1268,11 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
               <div className="border border-border/40 rounded-lg p-3 space-y-2.5 bg-muted/15 font-mono text-[10px]">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Source Key:</span>
-                  <span className="font-bold text-foreground truncate max-w-[120px]">{selectedLink.from}.{selectedLink.field}</span>
+                  <span className="font-bold text-foreground truncate max-w-[120px]">{selectedLinkFromName}.{selectedLink.field}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Target Key:</span>
-                  <span className="font-bold text-foreground">{selectedLink.to}._id</span>
+                  <span className="font-bold text-foreground">{selectedLinkToName}._id</span>
                 </div>
               </div>
 
@@ -1272,9 +1308,9 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                 </div>
                 <p className="text-muted-foreground leading-normal">
                   {selectedLink.type === "reference" ? (
-                    `Recommendation: Recommending Denormalizing (Embedding). If "${selectedLink.to}" is small and queried with "${selectedLink.from}" in 100% of cases, embed user details to eliminate lookup join overhead.`
+                    `Recommendation: Recommending Denormalizing (Embedding). If "${selectedLinkToName}" is small and queried with "${selectedLinkFromName}" in 100% of cases, embed user details to eliminate lookup join overhead.`
                   ) : (
-                    `Recommendation: Recommending Normalizing (Referencing). If target "${selectedLink.to}" data updates frequently or grows rapidly, embed triggers write locks. Extract target to separate collection.`
+                    `Recommendation: Recommending Normalizing (Referencing). If target "${selectedLinkToName}" data updates frequently or grows rapidly, embed triggers write locks. Extract target to separate collection.`
                   )}
                 </p>
                 {selectedLink.type === "reference" && (
@@ -1289,7 +1325,8 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
               </div>
             </div>
           </div>
-        ) : activeColData ? (
+          );
+        })() : activeColData ? (
           <div className="flex-1 flex flex-col min-h-0">
             {/* Panel Header */}
             <div className="p-4 border-b border-border/60 shrink-0">
@@ -1328,9 +1365,8 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                       onChange={(e) => {
                         const val = e.target.value;
                         setCollections((prev) =>
-                          prev.map((c) => (c.name === activeColData.name ? { ...c, name: val } : c))
+                          prev.map((c) => (c.id === activeColData.id ? { ...c, name: val } : c))
                         );
-                        setSelectedCol(val);
                       }}
                       className="h-8 text-xs font-mono bg-muted/20"
                     />
@@ -1344,7 +1380,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                           key={clr}
                           onClick={() => {
                             setCollections((prev) =>
-                              prev.map((c) => (c.name === activeColData.name ? { ...c, color: clr } : c))
+                              prev.map((c) => (c.id === activeColData.id ? { ...c, color: clr } : c))
                             );
                           }}
                           className={`w-5 h-5 rounded-full border border-border/60 ${
@@ -1393,7 +1429,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                   const updatedRules = { ...activeColData.validationRules };
                                   updatedRules[field.name] = { ...rules, required: e.target.checked };
                                   setCollections((prev) =>
-                                    prev.map((c) => (c.name === activeColData.name ? { ...c, validationRules: updatedRules } : c))
+                                    prev.map((c) => (c.id === activeColData.id ? { ...c, validationRules: updatedRules } : c))
                                   );
                                 }}
                                 className="rounded border-zinc-700 bg-zinc-900 accent-primary cursor-pointer"
@@ -1412,7 +1448,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                     const updatedRules = { ...activeColData.validationRules };
                                     updatedRules[field.name] = { ...rules, unique: e.target.checked };
                                     setCollections((prev) =>
-                                      prev.map((c) => (c.name === activeColData.name ? { ...c, validationRules: updatedRules } : c))
+                                      prev.map((c) => (c.id === activeColData.id ? { ...c, validationRules: updatedRules } : c))
                                     );
                                   }}
                                   className="rounded border-zinc-700 bg-zinc-900 accent-primary cursor-pointer"
@@ -1432,7 +1468,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                                     const updatedRules = { ...activeColData.validationRules };
                                     updatedRules[field.name] = { ...rules, pattern: e.target.value };
                                     setCollections((prev) =>
-                                      prev.map((c) => (c.name === activeColData.name ? { ...c, validationRules: updatedRules } : c))
+                                      prev.map((c) => (c.id === activeColData.id ? { ...c, validationRules: updatedRules } : c))
                                     );
                                   }}
                                   placeholder="e.g. ^\S+@\S+$"
@@ -1460,7 +1496,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                         const idxName = `idx_${activeColData.fields[1]?.name || "field"}`;
                         updatedIndexes.push({ name: idxName, keys: { [activeColData.fields[1]?.name || "_id"]: 1 } });
                         setCollections((prev) =>
-                          prev.map((c) => (c.name === activeColData.name ? { ...c, indexes: updatedIndexes } : c))
+                          prev.map((c) => (c.id === activeColData.id ? { ...c, indexes: updatedIndexes } : c))
                         );
                       }}
                       className="h-6 text-[10px] font-mono text-primary gap-1"
@@ -1480,7 +1516,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
                               onClick={() => {
                                 const updatedIndexes = (activeColData.indexes || []).filter((_, i) => i !== indexIdx);
                                 setCollections((prev) =>
-                                  prev.map((c) => (c.name === activeColData.name ? { ...c, indexes: updatedIndexes } : c))
+                                  prev.map((c) => (c.id === activeColData.id ? { ...c, indexes: updatedIndexes } : c))
                                 );
                               }}
                               className="text-muted-foreground hover:text-destructive"
