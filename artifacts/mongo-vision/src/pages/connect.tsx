@@ -24,13 +24,13 @@ export default function Connect() {
     setTestResult(null);
 
     try {
-      const tempId = "test-" + Date.now();
-      const created = await createConnection.mutateAsync({ data: { name: name || "Test", uri } });
-      const result = await testConnection.mutateAsync({ connectionId: created.id });
+      const res = await fetch("/api/connections/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uri }),
+      });
+      const result = await res.json();
       setTestResult(result);
-      if (!result.success) {
-        await import("@workspace/api-client-react").then(m => {});
-      }
     } catch (err: any) {
       setTestResult({ success: false, message: err.message || "Connection failed" });
     }

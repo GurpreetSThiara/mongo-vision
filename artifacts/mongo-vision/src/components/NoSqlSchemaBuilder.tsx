@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
-  Loader2, Plus, Move, ZoomIn, ZoomOut, Trash2, Check, X,
+  Loader2, Plus, Move, ZoomIn, ZoomOut, Maximize2, Trash2, Check, X,
   Search, ShieldAlert, ChevronDown, ChevronRight, Sparkles
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +67,19 @@ function getFieldYOffset(
     }
   }
   return offset;
+}
+
+/** Full rendered height of a card's field list, accounting for expanded nested-object rows. */
+function getCardHeight(col: CollectionEntity, collapsedFields: Record<string, boolean>): number {
+  let height = CARD_HEADER_HEIGHT;
+  for (const field of col.fields) {
+    height += FIELD_ROW_HEIGHT;
+    const isCollapsed = collapsedFields[`${col.id}.${field.name}`] || false;
+    if (field.children && !isCollapsed) {
+      height += field.children.length * NESTED_CHILD_ROW_HEIGHT;
+    }
+  }
+  return height;
 }
 
 interface NoSqlSchemaBuilderProps {
@@ -288,6 +301,49 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
     };
   }, [draggingColId, isPanning, activeLinkSource, pan, zoom]);
 
+  // Zooms/pans so every card in `posMap` fits within the visible canvas viewport
+  const fitViewToPositions = (
+    posMap: Record<string, { x: number; y: number }>,
+    cols: CollectionEntity[] = collections
+  ) => {
+    if (!canvasRef.current || cols.length === 0) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    cols.forEach((col) => {
+      const pos = posMap[col.id];
+      if (!pos) return;
+      const height = getCardHeight(col, collapsedFields);
+      minX = Math.min(minX, pos.x);
+      minY = Math.min(minY, pos.y);
+      maxX = Math.max(maxX, pos.x + CARD_WIDTH);
+      maxY = Math.max(maxY, pos.y + height);
+    });
+    if (!Number.isFinite(minX)) return;
+
+    const PADDING = 80;
+    const contentWidth = Math.max(maxX - minX, 1);
+    const contentHeight = Math.max(maxY - minY, 1);
+    const scaleX = (rect.width - PADDING * 2) / contentWidth;
+    const scaleY = (rect.height - PADDING * 2) / contentHeight;
+    const nextZoom = Math.min(2, Math.max(0.3, Math.min(scaleX, scaleY)));
+
+    setZoom(nextZoom);
+    setPan({
+      x: rect.width / 2 - (minX + contentWidth / 2) * nextZoom,
+      y: rect.height / 2 - (minY + contentHeight / 2) * nextZoom,
+    });
+  };
+
+  // Fit the canvas view once, right after the initial schema load settles
+  const didInitialFit = useRef(false);
+  useEffect(() => {
+    if (!loading && !didInitialFit.current && collections.length > 0 && canvasRef.current) {
+      didInitialFit.current = true;
+      fitViewToPositions(positions, collections);
+    }
+  }, [loading, collections, positions]);
+
   // Mouse Wheel zooms in and out, anchored on the cursor position
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -488,8 +544,6 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
 
   // Auto Layout algorithms
   const triggerLayout = (mode: "grid" | "circle" | "force") => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
     const nextPos: Record<string, { x: number; y: number }> = {};
 
     if (mode === "grid") {
@@ -538,6 +592,7 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
       });
     }
     setPositions(nextPos);
+    fitViewToPositions(nextPos);
   };
 
   // Quick-template generator: matches keywords in the prompt to canned starter schemas
@@ -906,6 +961,21 @@ export function NoSqlSchemaBuilder({ connectionId, database }: NoSqlSchemaBuilde
             </Button>
             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-32 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
               Zoom in canvas (max 200%)
+            </div>
+          </div>
+
+          <div className="relative group flex items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              onClick={() => fitViewToPositions(positions)}
+              title="Fit to Screen"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </Button>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:block z-50 w-36 p-1.5 bg-zinc-950 border border-border/80 rounded text-[9px] font-mono text-muted-foreground shadow-xl pointer-events-none text-center leading-normal">
+              Zoom/pan to fit all cards in view
             </div>
           </div>
 

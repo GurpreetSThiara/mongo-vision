@@ -80,6 +80,15 @@ router.get(
   }
 );
 
+function deserializeEjson<T>(val: T): T {
+  if (!val || typeof val !== "object") return val;
+  try {
+    return BSON.EJSON.deserialize(val as any) as T;
+  } catch {
+    return val;
+  }
+}
+
 router.post(
   "/connections/:connectionId/databases/:dbName/collections/:collectionName/documents",
   async (req, res) => {
@@ -93,7 +102,8 @@ router.post(
 
     try {
       const col = session.client.db(dbName).collection(collectionName);
-      const result = await col.insertOne(document);
+      const deserializedDoc = deserializeEjson(document) || {};
+      const result = await col.insertOne(deserializedDoc);
       res.json({
         insertedId: result.insertedId.toString(),
         acknowledged: result.acknowledged,
@@ -131,11 +141,29 @@ router.put(
       let result;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const idFilter: any = { _id: objectId };
+      const deserializedUpdate = deserializeEjson(update) || {};
+
       if (replace) {
-        const { _id, ...docWithoutId } = update as { _id?: unknown; [key: string]: unknown };
+        const { _id, ...docWithoutId } = deserializedUpdate as { _id?: unknown; [key: string]: unknown };
         result = await col.replaceOne(idFilter, docWithoutId);
       } else {
-        const updateDoc = update.$set || update.$unset || update.$push ? update : { $set: update };
+        let updateDoc: Record<string, unknown>;
+        if (
+          deserializedUpdate.$set ||
+          deserializedUpdate.$unset ||
+          deserializedUpdate.$push ||
+          deserializedUpdate.$inc
+        ) {
+          if (deserializedUpdate.$set && typeof deserializedUpdate.$set === "object") {
+            const { _id, ...setWithoutId } = deserializedUpdate.$set as Record<string, unknown>;
+            updateDoc = { ...deserializedUpdate, $set: setWithoutId };
+          } else {
+            updateDoc = deserializedUpdate;
+          }
+        } else {
+          const { _id, ...docWithoutId } = deserializedUpdate as { _id?: unknown; [key: string]: unknown };
+          updateDoc = { $set: docWithoutId };
+        }
         result = await col.updateOne(idFilter, updateDoc);
       }
 
@@ -203,21 +231,39 @@ router.post(
     try {
       const col = session.client.db(dbName).collection(collectionName);
       let result: Record<string, unknown> = { acknowledged: true };
+      const deserializedFilter = deserializeEjson(filter) || {};
 
       if (operation === "deleteMany") {
-        const r = await col.deleteMany(filter || {});
+        const r = await col.deleteMany(deserializedFilter);
         result = { deletedCount: r.deletedCount, acknowledged: r.acknowledged };
       } else if (operation === "updateMany") {
-        const updateDoc =
-          update && (update.$set || update.$unset || update.$push) ? update : { $set: update };
-        const r = await col.updateMany(filter || {}, updateDoc);
+        const deserializedUpdate = deserializeEjson(update) || {};
+        let updateDoc: Record<string, unknown>;
+        if (
+          deserializedUpdate.$set ||
+          deserializedUpdate.$unset ||
+          deserializedUpdate.$push ||
+          deserializedUpdate.$inc
+        ) {
+          if (deserializedUpdate.$set && typeof deserializedUpdate.$set === "object") {
+            const { _id, ...setWithoutId } = deserializedUpdate.$set as Record<string, unknown>;
+            updateDoc = { ...deserializedUpdate, $set: setWithoutId };
+          } else {
+            updateDoc = deserializedUpdate;
+          }
+        } else {
+          const { _id, ...docWithoutId } = deserializedUpdate as { _id?: unknown; [key: string]: unknown };
+          updateDoc = { $set: docWithoutId };
+        }
+        const r = await col.updateMany(deserializedFilter, updateDoc);
         result = {
           matchedCount: r.matchedCount,
           modifiedCount: r.modifiedCount,
           acknowledged: r.acknowledged,
         };
       } else if (operation === "insertMany") {
-        const r = await col.insertMany(documents || []);
+        const deserializedDocs = (documents || []).map((doc) => deserializeEjson(doc));
+        const r = await col.insertMany(deserializedDocs);
         result = {
           insertedCount: r.insertedCount,
           acknowledged: r.acknowledged,

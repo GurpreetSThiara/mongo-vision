@@ -737,7 +737,7 @@ export default function Explorer() {
         )}
 
         {/* Content area */}
-        <div className={`flex-1 overflow-hidden ${isMobileOrTablet ? "mobile-content-pb" : ""}`}>
+        <div className={`flex-1 flex flex-col min-h-0 overflow-hidden ${isMobileOrTablet ? "mobile-content-pb" : ""}`}>
           {!collection ? (
             database ? (
               <NoSqlSchemaBuilder connectionId={connectionId} database={database} />

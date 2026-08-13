@@ -1,7 +1,17 @@
 import { Router } from "express";
+import { BSON } from "mongodb";
 import { getSession } from "../lib/mongodb.js";
 
 const router = Router();
+
+function deserializeEjson<T>(val: T): T {
+  if (!val || typeof val !== "object") return val;
+  try {
+    return BSON.EJSON.deserialize(val as any) as T;
+  } catch {
+    return val;
+  }
+}
 
 router.post(
   "/connections/:connectionId/databases/:dbName/collections/:collectionName/query",
@@ -25,12 +35,16 @@ router.post(
       const col = session.client.db(dbName).collection(collectionName);
       const start = Date.now();
 
-      let cursor = col.find(filter || {});
-      if (projection && Object.keys(projection).length > 0) {
-        cursor = cursor.project(projection);
+      const deserializedFilter = deserializeEjson(filter) || {};
+      const deserializedSort = deserializeEjson(sort);
+      const deserializedProjection = deserializeEjson(projection);
+
+      let cursor = col.find(deserializedFilter);
+      if (deserializedProjection && Object.keys(deserializedProjection).length > 0) {
+        cursor = cursor.project(deserializedProjection);
       }
-      if (sort && Object.keys(sort).length > 0) {
-        cursor = cursor.sort(sort as Record<string, 1 | -1>);
+      if (deserializedSort && Object.keys(deserializedSort).length > 0) {
+        cursor = cursor.sort(deserializedSort as Record<string, 1 | -1>);
       }
       if (skip) cursor = cursor.skip(skip);
       cursor = cursor.limit(Math.min(limit || 20, 1000));
@@ -71,7 +85,8 @@ router.post(
       const col = session.client.db(dbName).collection(collectionName);
       const start = Date.now();
 
-      const documents = await col.aggregate(pipeline || []).toArray();
+      const deserializedPipeline = (pipeline || []).map((stage) => deserializeEjson(stage));
+      const documents = await col.aggregate(deserializedPipeline).toArray();
       const executionTimeMs = Date.now() - start;
 
       const serialized = documents.map((doc) => ({
@@ -111,11 +126,14 @@ router.post(
       const db = session.client.db(dbName);
       const start = Date.now();
 
+      const deserializedFilter = deserializeEjson(filter) || {};
+      const deserializedSort = deserializeEjson(sort) || {};
+
       const explainResult = await db.command({
         explain: {
           find: collectionName,
-          filter: filter || {},
-          sort: sort || {},
+          filter: deserializedFilter,
+          sort: deserializedSort,
           limit: limit || 20,
         },
         verbosity: "executionStats",
@@ -161,7 +179,7 @@ router.post(
     }
 
     try {
-      const queryFilter = filter || {};
+      const queryFilter = deserializeEjson(filter) || {};
       const filterFields = Object.keys(queryFilter);
 
       const suggestions = filterFields.map((field) => ({

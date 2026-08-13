@@ -60,6 +60,36 @@ router.delete("/connections/:connectionId", (req, res) => {
   res.json({ success: true, message: "Connection removed" });
 });
 
+router.post("/connections/test", async (req, res) => {
+  const { uri } = req.body as { uri: string };
+  if (!uri) {
+    res.status(400).json({ success: false, message: "URI is required" });
+    return;
+  }
+
+  try {
+    const start = Date.now();
+    const client = new MongoClient(uri, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+    });
+    await client.connect();
+    const latencyMs = Date.now() - start;
+    let mongoVersion: string | undefined;
+    try {
+      const info = await client.db("admin").command({ buildInfo: 1 });
+      mongoVersion = info.version;
+    } catch {
+      mongoVersion = "unknown";
+    }
+    await client.close();
+    res.json({ success: true, latencyMs, mongoVersion, message: "Connected successfully" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Connection failed";
+    res.json({ success: false, message });
+  }
+});
+
 router.post("/connections/:connectionId/test", async (req, res) => {
   const { connectionId } = req.params;
   const session = getSession(connectionId);

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { BSON } from "mongodb";
 import { getSession } from "../lib/mongodb.js";
 
 const router = Router();
@@ -13,7 +14,7 @@ function documentsToCSV(docs: Record<string, unknown>[]): string {
       if (val === null || val === undefined) return "";
       if (typeof val === "object") return `"${JSON.stringify(val).replace(/"/g, '""')}"`;
       const str = String(val);
-      if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+      if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
         return `"${str.replace(/"/g, '""')}"`;
       }
       return str;
@@ -23,23 +24,121 @@ function documentsToCSV(docs: Record<string, unknown>[]): string {
   return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }
 
-function csvToDocuments(csv: string): Record<string, unknown>[] {
-  const lines = csv.trim().split("\n");
-  if (lines.length < 2) return [];
+function parseCsvRows(csv: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = "";
+  let inQuotes = false;
+  let i = 0;
 
-  const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+  while (i < csv.length) {
+    const char = csv[i];
+    const nextChar = csv[i + 1];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (nextChar === '"') {
+          currentField += '"';
+          i += 2;
+          continue;
+        } else {
+          inQuotes = false;
+          i++;
+          continue;
+        }
+      } else {
+        currentField += char;
+        i++;
+        continue;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+        i++;
+        continue;
+      } else if (char === ",") {
+        currentRow.push(currentField);
+        currentField = "";
+        i++;
+        continue;
+      } else if (char === "\r") {
+        if (nextChar === "\n") {
+          i++;
+        }
+        currentRow.push(currentField);
+        currentField = "";
+        if (currentRow.length > 0 && !(currentRow.length === 1 && currentRow[0] === "")) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+        i++;
+        continue;
+      } else if (char === "\n") {
+        currentRow.push(currentField);
+        currentField = "";
+        if (currentRow.length > 0 && !(currentRow.length === 1 && currentRow[0] === "")) {
+          rows.push(currentRow);
+        }
+        currentRow = [];
+        i++;
+        continue;
+      } else {
+        currentField += char;
+        i++;
+        continue;
+      }
+    }
+  }
+
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField);
+    if (currentRow.length > 0 && !(currentRow.length === 1 && currentRow[0] === "")) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+}
+
+function parseTypedValue(val: string): unknown {
+  const trimmed = val.trim();
+  if (trimmed === "" || trimmed === "null") return null;
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return BSON.EJSON.deserialize(parsed);
+    } catch {
+      // Fall through to number/string
+    }
+  }
+
+  const numVal = Number(trimmed);
+  if (!isNaN(numVal) && trimmed !== "") {
+    return numVal;
+  }
+  return val;
+}
+
+function csvToDocuments(csv: string): Record<string, unknown>[] {
+  const rows = parseCsvRows(csv);
+  if (rows.length < 2) return [];
+
+  const headers = rows[0].map((h) => h.trim());
   const docs: Record<string, unknown>[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(",");
+  for (let i = 1; i < rows.length; i++) {
+    const values = rows[i];
     const doc: Record<string, unknown> = {};
     headers.forEach((h, idx) => {
-      let val: unknown = values[idx]?.trim().replace(/^"|"$/g, "") || "";
-      const numVal = Number(val);
-      if (!isNaN(numVal) && val !== "") val = numVal;
-      if (val === "true") val = true;
-      if (val === "false") val = false;
-      doc[h] = val;
+      if (!h) return;
+      const rawVal = values[idx] !== undefined ? values[idx] : "";
+      doc[h] = parseTypedValue(rawVal);
     });
     docs.push(doc);
   }
@@ -124,7 +223,8 @@ router.post(
       if (format === "json") {
         try {
           const parsed = JSON.parse(data);
-          docs = Array.isArray(parsed) ? parsed : [parsed];
+          const rawDocs = Array.isArray(parsed) ? parsed : [parsed];
+          docs = rawDocs.map((d) => (d ? BSON.EJSON.deserialize(d) : {}) as Record<string, unknown>);
         } catch (e) {
           res.status(400).json({ error: "parse_error", message: "Invalid JSON" });
           return;
